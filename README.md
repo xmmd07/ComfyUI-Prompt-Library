@@ -317,3 +317,9 @@ node devtools/cdp-shot.mjs "http://127.0.0.1:8791/" out.png --width 860 --height
 - 唯一的数据写入发生在用户主动点保存/编辑/删除时（写 `user\default\prompt_library\library.json` 及 `library.bak.json` 备份）；插件不会在后台自动写任何东西，也不会自动删除收藏。
 - 不向 `/prompt` 提交任务（不会触发出图）；所有探针读取都是 GET。
 - 任何异常都在内部捕获并只写 `console.warn`，不会阻断 ComfyUI 启动。
+
+---
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE) 授权，可自由使用、修改、分发与商用，只需保留版权声明。
