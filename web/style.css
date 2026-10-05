@@ -1,0 +1,735 @@
+/* ============================================================================
+   Prompt Library 面板样式（v0.2 UI 整理版）
+   设计约束：
+     · 面向 ComfyUI 窄侧边栏（240–420px），所有内容都必须能换行/压缩；
+     · 一律使用 flex + gap 布局，不写死高度（除按钮/徽标这类固定高度的控件）；
+     · 唯一的定位是收藏弹窗的遮罩（position:fixed，故意覆盖全屏）；
+     · 颜色全部走 ComfyUI 主题变量，未定义时回落到中性深色。
+   ========================================================================== */
+
+.pp-host {
+  height: 100%;
+  overflow: hidden;
+}
+
+.pp-root {
+  /* —— 统一的设计变量 —— */
+  --pp-bg: var(--comfy-menu-bg, #202020);
+  --pp-bg-2: var(--comfy-input-bg, #262626);
+  --pp-bg-3: var(--comfy-input-bg, #2c2c2c);
+  --pp-fg: var(--fg-color, #e6e6e6);
+  --pp-muted: rgba(255, 255, 255, 0.58);
+  --pp-border: var(--border-color, #3a3a3a);
+  --pp-border-soft: rgba(255, 255, 255, 0.08);
+  --pp-accent: var(--p-primary-color, #4b8bff);
+  --pp-ok: #6ce0a0;
+  --pp-warn: #f0c060;
+  --pp-bad: #ff9a9a;
+  --pp-info: #8ab6ff;
+  --pp-radius: 8px;
+  --pp-radius-sm: 6px;
+  --pp-btn-h: 24px;
+  --pp-font: 12px;
+  --pp-font-sm: 11px;
+  --pp-font-xs: 10px;
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  font-size: var(--pp-font);
+  line-height: 1.45;
+  color: var(--pp-fg);
+  background: var(--pp-bg);
+}
+
+/* ---------------- 顶部：品牌行 + 页面切换 + 页面工具条 ---------------- */
+
+.pp-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 10px 6px;
+  min-width: 0;
+}
+
+.pp-title {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pp-ver {
+  font-size: var(--pp-font-xs);
+  color: var(--pp-muted);
+  white-space: nowrap;
+}
+
+.pp-seg {
+  display: flex;
+  gap: 4px;
+  padding: 0 10px 6px;
+}
+
+.pp-seg-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--pp-btn-h);
+  padding: 0 8px;
+  font-size: var(--pp-font-sm);
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-sm);
+  background: transparent;
+  color: var(--pp-muted);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pp-seg-btn:hover {
+  color: var(--pp-fg);
+  border-color: var(--pp-accent);
+}
+
+.pp-seg-btn.pp-seg-on {
+  background: var(--pp-accent);
+  border-color: var(--pp-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.pp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 10px;
+  border-top: 1px solid var(--pp-border-soft);
+  border-bottom: 1px solid var(--pp-border-soft);
+}
+
+.pp-toolbar .pp-input {
+  flex: 1 1 120px;
+  min-width: 0;
+  width: auto;
+}
+
+/* ---------------- 主体滚动区 ---------------- */
+
+.pp-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 10px 12px;
+}
+
+.pp-foot {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: var(--pp-font-xs);
+  color: var(--pp-muted);
+  border-top: 1px solid var(--pp-border-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------- 通用文本元素 ---------------- */
+
+.pp-wf {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pp-sum-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: var(--pp-font-xs);
+  color: var(--pp-muted);
+  margin-top: 2px;
+}
+
+.pp-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pp-mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--pp-font-sm);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* 单行省略：用于很长的节点类名（完整名称仍在 title 提示里） */
+.pp-ellip {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pp-len {
+  font-size: var(--pp-font-xs);
+  color: var(--pp-muted);
+  white-space: nowrap;
+}
+
+.pp-hint {
+  font-size: var(--pp-font-xs);
+  color: var(--pp-muted);
+  overflow-wrap: anywhere;
+}
+
+.pp-warn {
+  font-size: var(--pp-font-sm);
+  color: var(--pp-warn);
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.pp-notes {
+  margin: 4px 0 0;
+  padding-left: 14px;
+  font-size: var(--pp-font-sm);
+  color: var(--pp-muted);
+  overflow-wrap: anywhere;
+}
+
+.pp-notes li {
+  margin-bottom: 2px;
+}
+
+.pp-path,
+.pp-src {
+  font-size: var(--pp-font-sm);
+  color: var(--pp-muted);
+  overflow-wrap: anywhere;
+}
+
+.pp-path {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--pp-font-xs);
+}
+
+.pp-branches {
+  margin-top: 4px;
+  font-size: var(--pp-font-sm);
+  color: var(--pp-muted);
+}
+
+.pp-branch {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--pp-font-xs);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.pp-empty {
+  padding: 10px 4px;
+  color: var(--pp-muted);
+  font-size: var(--pp-font-sm);
+}
+
+/* ---------------- 按钮（统一高度 / 圆角 / 间距） ---------------- */
+
+.pp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--pp-btn-h);
+  padding: 0 10px;
+  font-size: var(--pp-font-sm);
+  line-height: 1;
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-sm);
+  background: var(--pp-bg-3);
+  color: var(--pp-fg);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pp-btn:hover {
+  border-color: var(--pp-accent);
+}
+
+.pp-btn-mini {
+  height: 20px;
+  padding: 0 8px;
+  font-size: var(--pp-font-xs);
+}
+
+.pp-primary {
+  background: var(--pp-accent);
+  border-color: var(--pp-accent);
+  color: #fff;
+}
+
+.pp-danger {
+  color: var(--pp-bad);
+  border-color: rgba(255, 154, 154, 0.4);
+}
+
+.pp-danger:hover {
+  border-color: var(--pp-bad);
+}
+
+.pp-copy {
+  min-width: 46px;
+}
+
+/* ---------------- 徽标（统一形状与配色） ---------------- */
+
+.pp-badge {
+  display: inline-block;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 6px;
+  font-size: var(--pp-font-xs);
+  border-radius: 8px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.pp-badge-ok    { background: rgba(108, 224, 160, 0.16); color: var(--pp-ok);   border-color: rgba(108, 224, 160, 0.45); }
+.pp-badge-warn  { background: rgba(240, 192, 96, 0.16);  color: var(--pp-warn); border-color: rgba(240, 192, 96, 0.45); }
+.pp-badge-info  { background: rgba(138, 182, 255, 0.16); color: var(--pp-info); border-color: rgba(138, 182, 255, 0.45); }
+.pp-badge-muted { background: rgba(255, 255, 255, 0.08); color: var(--pp-muted); border-color: rgba(255, 255, 255, 0.18); }
+.pp-badge-bad   { background: rgba(255, 154, 154, 0.16); color: var(--pp-bad);  border-color: rgba(255, 154, 154, 0.45); }
+.pp-badge-model { background: rgba(170, 150, 255, 0.16); color: #c0b0ff;        border-color: rgba(170, 150, 255, 0.45); }
+
+.pp-role {
+  display: inline-block;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 6px;
+  font-size: var(--pp-font-xs);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--pp-muted);
+  white-space: nowrap;
+}
+
+.pp-role-neg {
+  opacity: 0.85;
+}
+
+.pp-tag {
+  display: inline-block;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 6px;
+  font-size: var(--pp-font-xs);
+  border-radius: 8px;
+  background: var(--pp-accent);
+  color: #fff;
+  white-space: nowrap;
+}
+
+.pp-group {
+  font-size: var(--pp-font-sm);
+  color: var(--pp-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---------------- 输入控件 ---------------- */
+
+.pp-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: var(--pp-btn-h);
+  padding: 0 8px;
+  font-size: var(--pp-font-sm);
+  color: var(--pp-fg);
+  background: var(--pp-bg-3);
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-sm);
+}
+
+select.pp-input {
+  padding: 0 4px;
+}
+
+.pp-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  height: auto;
+  min-height: 120px;
+  max-height: 45vh;
+  padding: 6px 8px;
+  resize: vertical;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--pp-font-sm);
+  line-height: 1.5;
+}
+
+.pp-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.pp-row-between {
+  justify-content: space-between;
+}
+
+/* ---------------- 探针：采样链卡片 ---------------- */
+
+.pp-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 10px 6px;
+}
+
+.pp-tab {
+  height: 22px;
+  max-width: 100%;
+  padding: 0 8px;
+  font-size: var(--pp-font-xs);
+  border: 1px solid var(--pp-border);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--pp-muted);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pp-tab:hover {
+  color: var(--pp-fg);
+  border-color: var(--pp-accent);
+}
+
+.pp-tab-active {
+  background: var(--pp-accent);
+  border-color: var(--pp-accent);
+  color: #fff;
+}
+
+.pp-card {
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius);
+  padding: 8px;
+  margin-bottom: 8px;
+  background: var(--pp-bg-2);
+  min-width: 0;
+}
+
+.pp-card-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 单个 Prompt 卡片内部的字段块：只用一条细线分隔，不再层层套框 */
+.pp-field {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pp-border-soft);
+  min-width: 0;
+}
+
+.pp-field.pp-selectable {
+  cursor: pointer;
+  border-radius: var(--pp-radius-sm);
+}
+
+.pp-field.pp-selectable:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.pp-field.pp-selected {
+  background: rgba(75, 139, 255, 0.10);
+  outline: 1px solid var(--pp-accent);
+  outline-offset: 2px;
+}
+
+.pp-field-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Prompt 正文：默认 3 行预览（.pp-clamp），展开后完整显示 */
+.pp-text {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--pp-font-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--pp-bg);
+  border: 1px solid var(--pp-border-soft);
+  border-radius: var(--pp-radius-sm);
+}
+
+.pp-clamp .pp-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.pp-neg {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pp-border-soft);
+  font-size: var(--pp-font-sm);
+  color: var(--pp-muted);
+  min-width: 0;
+}
+
+/* 低频技术信息：可展开的「技术详情」 */
+.pp-details {
+  margin-top: 6px;
+  font-size: var(--pp-font-sm);
+  color: var(--pp-muted);
+  min-width: 0;
+}
+
+.pp-summary {
+  cursor: pointer;
+  font-size: var(--pp-font-xs);
+  color: var(--pp-muted);
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+}
+
+.pp-summary::-webkit-details-marker {
+  display: none;
+}
+
+.pp-summary::before {
+  content: '▸';
+  font-size: 9px;
+}
+
+.pp-details[open] > .pp-summary::before {
+  content: '▾';
+}
+
+.pp-details > *:not(.pp-summary) {
+  margin-top: 4px;
+}
+
+.pp-selected-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  font-size: var(--pp-font-xs);
+  border: 1px solid var(--pp-accent);
+  border-radius: var(--pp-radius-sm);
+  background: rgba(75, 139, 255, 0.12);
+  min-width: 0;
+}
+
+.pp-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  font-size: var(--pp-font-sm);
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-sm);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pp-notice-info  { background: rgba(75, 139, 255, 0.10); }
+.pp-notice-warn  { background: rgba(240, 192, 96, 0.14); color: var(--pp-warn); }
+.pp-notice-error { background: rgba(255, 154, 154, 0.14); color: var(--pp-bad); }
+
+/* ---------------- 我的收藏 ---------------- */
+
+.pp-lib-item {
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius);
+  padding: 8px;
+  margin-bottom: 8px;
+  background: var(--pp-bg-2);
+  min-width: 0;
+}
+
+/* 收藏页工具条：搜索框固定占一行（窄侧边栏下不会和筛选/按钮挤在一起），
+   第二行由模型筛选器占满、刷新/导出靠右。 */
+.pp-lib-toolbar .pp-lib-search {
+  flex: 1 1 100%;
+}
+
+.pp-lib-toolbar select.pp-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pp-lib-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pp-lib-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--pp-fg);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.pp-lib-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: var(--pp-font-xs);
+  color: var(--pp-muted);
+  min-width: 0;
+}
+
+.pp-lib-src {
+  margin-top: 4px;
+  font-size: var(--pp-font-xs);
+  color: var(--pp-muted);
+  overflow-wrap: anywhere;
+}
+
+.pp-lib-preview {
+  margin-top: 6px;
+  font-size: var(--pp-font-sm);
+  line-height: 1.5;
+  color: var(--pp-fg);
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.pp-lib-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pp-border-soft);
+}
+
+.pp-lib .pp-text {
+  margin-top: 8px;
+}
+
+/* ---------------- 弹窗（唯一使用定位的地方：模态遮罩） ---------------- */
+
+.pp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px 10px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: auto;
+}
+
+.pp-dlg {
+  width: 100%;
+  max-width: 520px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--pp-border);
+  border-radius: 10px;
+  background: var(--pp-bg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.pp-dlg-sm {
+  max-width: 400px;
+}
+
+.pp-dlg-h {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.pp-dlg-msg {
+  font-size: var(--pp-font-sm);
+  color: var(--pp-muted);
+  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+}
+
+.pp-dlg-warn {
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  font-size: var(--pp-font-sm);
+  color: var(--pp-warn);
+  background: rgba(240, 192, 96, 0.14);
+  border-radius: var(--pp-radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.pp-dlg-field {
+  margin-bottom: 10px;
+  min-width: 0;
+}
+
+.pp-label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: var(--pp-font-xs);
+  color: var(--pp-muted);
+}
+
+.pp-dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.pp-dlg-errors .pp-warn {
+  margin-top: 4px;
+}

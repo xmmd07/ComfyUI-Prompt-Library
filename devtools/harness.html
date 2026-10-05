@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Prompt Probe · 本地验证台</title>
+  <link rel="stylesheet" href="/web/style.css" />
+  <style>
+    html, body { margin: 0; background: #1b1b1b; color: #e6e6e6; font-family: system-ui, "Microsoft YaHei", sans-serif; }
+    header { padding: 8px 12px; font-size: 12px; opacity: .75; border-bottom: 1px solid #3a3a3a; }
+    #wrap { display: flex; gap: 16px; padding: 12px; align-items: flex-start; }
+    .frame { display: flex; flex-direction: column; }
+    .frame > .cap { font-size: 11px; opacity: .6; margin-bottom: 4px; }
+    /* 模拟 ComfyUI 窄侧边栏的容器 */
+    .pane { background: #202020; border: 1px solid #3a3a3a; overflow: auto; }
+    #host { width: 300px; height: 620px; }
+    #hostWide { width: 420px; height: 620px; }
+  </style>
+</head>
+<body>
+  <header>本地验证台（假画布 + 假收藏库，不连接 ComfyUI 图形界面）—— 用于窄侧边栏排版检查</header>
+  <div id="wrap">
+    <div class="frame"><div class="cap">窄侧边栏 300px</div><div id="host" class="pane"></div></div>
+    <div class="frame"><div class="cap">较宽 420px</div><div id="hostWide" class="pane"></div></div>
+  </div>
+
+  <script type="module">
+    import { makeMockApp } from '/devtools/mock-app.mjs';
+    import { createPanel } from '/web/probe/panel.mjs';
+    import { auditLayout } from '/web/probe/layout-audit.mjs';
+
+    /* 内存版假 api：让"我的收藏"页面也能在验证台里真实渲染 */
+    const files = new Map();
+    const fakeApi = {
+      files,
+      async fetchApi(url, opts = {}) {
+        const m = /^\/userdata\/(.+)$/.exec(url);
+        const key = m ? decodeURIComponent(m[1]) : url;
+        if (!opts || opts.method !== 'POST') {
+          if (!files.has(key)) return { ok: false, status: 404, async text() { return 'not found'; } };
+          return { ok: true, status: 200, async text() { return files.get(key); } };
+        }
+        files.set(key, String(opts.body));
+        return { ok: true, status: 200, async json() { return { path: key }; }, async text() { return ''; } };
+      }
+    };
+
+    const state = { panels: {}, apps: {}, name: null, error: null };
+    const el = (which) => document.getElementById(which === 'b' ? 'hostWide' : 'host');
+
+    function mountInto(which, app, workflowName) {
+      const host = el(which);
+      host.innerHTML = '';
+      const panel = createPanel(app, { api: fakeApi, workflowName: () => workflowName });
+      panel.mount(host);
+      return panel;
+    }
+
+    window.__harness = {
+      async load(name = 'Krea2全面 (1).json') {
+        try {
+          const [wf, oi] = await Promise.all([
+            fetch('/wf/' + encodeURIComponent(name)).then((r) => r.json()),
+            fetch('/object_info').then((r) => r.json())
+          ]);
+          state.name = name;
+          state.apps.a = makeMockApp(wf, oi);
+          state.apps.b = makeMockApp(wf, oi);
+          state.panels.a = mountInto('a', state.apps.a, name);
+          state.panels.b = mountInto('b', state.apps.b, name);
+          state.error = null;
+          return true;
+        } catch (e) {
+          state.error = String(e);
+          throw e;
+        }
+      },
+
+      /** 造一批收藏数据（含超长标题 / 超长 Prompt / 超长工作流名）用于排版检查 */
+      async demoLibrary() {
+        const longTitle = '超长标题测试：一个非常非常非常非常非常非常非常长的收藏标题，用来确认它不会把卡片撑破';
+        const longText = ('gpt anima render style, A full-body night street scene of a languid teenage girl with long black hair tied into a high ponytail, '
+          + 'featuring bold pink streaks woven through the tail and side-swept bangs that partially veil her forehead. ').repeat(4);
+        const items = [
+          {
+            id: 'demo-1', title: 'Krea2 夜街少女', model: 'Krea 2', text: longText,
+            source: { workflow: 'Krea2全面 (1).json', node_class: 'CLIPTextEncode', node_id: 295, role: '正向', status: 'confirmed', status_text: '已确认' },
+            created_at: '2026-10-04T10:00:00.000Z', updated_at: '2026-10-04T10:20:00.000Z'
+          },
+          {
+            id: 'demo-2', title: longTitle, model: 'Anima', text: 'masterpiece, best quality, 1girl, solo, grey gradient hair, long hair, slender face, red eyes',
+            source: { workflow: '一个名字特别长的工作流文件名称_用来测试布局_2026秋天版.json', node_class: 'CLIPTextEncode', node_id: 6, role: '正向', status: 'candidate', status_text: '候选文本' },
+            created_at: '2026-10-03T09:00:00.000Z', updated_at: '2026-10-03T09:00:00.000Z'
+          },
+          {
+            id: 'demo-3', title: 'Qwen 日系写真', model: 'Qwen Image 2.1', text: '一位清新自然的日系女生，长直发或微卷发尾，刘海整齐，妆容淡雅，表情温柔略带羞涩。',
+            source: { workflow: 'qwen_image_2.1.json', node_class: 'TextEncodeQwenImage21', node_id: 476, role: '正向', status: 'confirmed', status_text: '已确认' },
+            created_at: '2026-10-02T08:00:00.000Z', updated_at: '2026-10-02T08:00:00.000Z'
+          }
+        ];
+        files.set('prompt_library/library.json', JSON.stringify({
+          version: 1, rev: 1, updated_at: '2026-10-04T10:00:00.000Z',
+          models: ['Anima', 'Krea 2', 'Qwen Image 2.1'], items
+        }));
+        for (const k of ['a', 'b']) {
+          state.panels[k].setView('library');
+          await state.panels[k].loadLibrary();
+        }
+        return true;
+      },
+
+      view(v) { for (const k of ['a', 'b']) state.panels[k].setView(v); return true; },
+      rescan() { for (const k of ['a', 'b']) state.panels[k].rescan(); return true; },
+      clickTab(label, which = 'a') {
+        const t = [...el(which).querySelectorAll('.pp-tab, .pp-seg-btn')].find((x) => x.textContent.includes(label));
+        t?.click();
+        return !!t;
+      },
+      clickChainTab(n, which = 'a') {
+        const t = [...el(which).querySelectorAll('.pp-tabs .pp-tab')].find((x) => x.textContent.startsWith(`链${n}`));
+        t?.click();
+        return !!t;
+      },
+      clickLabel(re, which = 'a') {
+        const b = [...el(which).querySelectorAll('button')].find((x) => re.test(x.textContent));
+        b?.click();
+        return !!b;
+      },
+      overlayOpen(which = 'a') { return !!el(which).querySelector('.pp-overlay'); },
+      dlgInfo(which = 'a') {
+        const d = el(which).querySelector('.pp-dlg');
+        if (!d) return 'no dialog';
+        const r = d.getBoundingClientRect();
+        const host = el(which).getBoundingClientRect();
+        return JSON.stringify({ w: Math.round(r.width), h: Math.round(r.height), hostW: Math.round(host.width), overflowX: d.scrollWidth > d.clientWidth + 1, overflowY: d.scrollHeight > d.clientHeight + 1 });
+      },
+      text(which = 'a') { return el(which).innerText; },
+      setWidth(px, which = 'a') { el(which).style.width = px + 'px'; return el(which).clientWidth; },
+      /** 排版体检：重叠 / 横向溢出 / 固定高度 / 被裁切 */
+      audit(which = 'a') {
+        const host = el(which);
+        const root = host.querySelector('.pp-root');
+        const r = auditLayout(root || host);
+        return JSON.stringify({
+          ...r,
+          overlaps: r.overlaps.slice(0, 6),
+          overflowX: r.overflowX.slice(0, 6),
+          view: state.panels[which]?.state?.view
+        });
+      },
+      result(which = 'a') { return state.panels[which]?.state?.result || null; },
+      error() { return state.error; }
+    };
+    window.__harnessReady = true;
+  </script>
+</body>
+</html>
