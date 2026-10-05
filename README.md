@@ -5,7 +5,7 @@
 - **探针（扫描）**：检查"当前工作流里的 Prompt 到底能不能被正确读出来"（阶段一）。
 - **我的收藏**：把满意的 Prompt 收藏起来，支持搜索 / 筛选 / 查看 / 编辑 / 复制 / 删除（阶段二）。
 
-- 插件目录：`D:\APPs\comfyUI\ComfyUI-aki-v3\ComfyUI\custom_nodes\ComfyUI-Prompt-Library\`
+- 插件目录：`~\ComfyUI\custom_nodes\ComfyUI-Prompt-Library\`
 - 收藏数据目录（独立于插件代码）：`ComfyUI\user\default\prompt_library\library.json`
 - 适用环境：ComfyUI 后端 0.37.2 + 前端 1.52.7（秋葉 aki-v3 整合版），实测通过
 - 无 Python 依赖、无 npm 依赖、无后端节点、无新增 HTTP 路由、不调 AI API、不联网
