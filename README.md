@@ -1,9 +1,10 @@
 # ComfyUI Prompt Library
 
-一个**纯前端**的 ComfyUI 侧边栏插件：只读扫描当前工作流里的 Prompt，并把满意的 Prompt 收藏成可搜索的本地库。
+一个**纯前端**的 ComfyUI 侧边栏插件：只读扫描当前工作流里的 Prompt，把满意的 Prompt 收藏成可搜索的本地库，并维护带参考图的画师串列表。
 
 - **探针（只读扫描）** —— 检查工作流里的 Prompt 到底能不能被正确读出来，以及它实际来自哪些节点。
 - **我的收藏** —— 收藏、搜索、筛选、查看、编辑、复制、删除。
+- **画师串** —— 手动画师串即条目，可选一张出图历史做参考图，点缩略图灯箱放大。
 
 无 Python 依赖、无 npm 依赖、不注册后端节点、不新增 HTTP 路由、不调用任何 AI API、不联网。
 
@@ -65,13 +66,13 @@ git clone https://github.com/xmmd07/ComfyUI-Prompt-Library.git
 打开开发者工具（F12 → Console），应能看到：
 
 ```
-[Prompt Probe] 已注册侧边栏标签「Prompt Library」v0.2.0（提示词探针只读 + 本地收藏）
+[Prompt Probe] 已注册侧边栏标签「Prompt Library」v0.3.0（提示词探针只读 + 本地收藏）
 ```
 
 并可在 Console 里执行只读调试命令：
 
 ```js
-window.__promptProbe.version                                      // "0.2.0"
+window.__promptProbe.version                                      // "0.3.0"
 window.__promptProbe.scanLive()                                   // 扫描当前画布并返回结构化结果
 await window.__promptProbe.scanWorkflowFile("my-workflow.json")   // 只读解析某个工作流文件（不打开它）
 window.__promptProbe.library.state().library                      // 当前收藏库（内存中）
@@ -94,15 +95,15 @@ curl -s http://127.0.0.1:8188/extensions | grep -i prompt-library
 顶部布局如下，两个视图共用同一套按钮高度、圆角、间距与徽标配色：
 
 ```
-┌ Prompt Library   v0.2 · 探针 / 收藏        ← 第 1 行：品牌 + 版本
-├ [ 探针 ] [ 我的收藏 (N) ]                   ← 第 2 行：视图切换
+┌ Prompt Library   v0.3 · 探针 / 收藏 / 画师串   ← 第 1 行：品牌 + 版本
+├ [ 探针 ] [ 我的收藏 (N) ] [ 画师串 (N) ]      ← 第 2 行：视图切换
 ├ 探针页：  [重新扫描] [★ 收藏 Prompt]        ← 第 3 行：只放当前视图的操作
 │ 收藏页：  [按标题搜索…]                     ←   （搜索框独占一行）
 │           [全部模型 ▾] [刷新] [导出]
 └ 只读探针 · 收藏存于 user\default\prompt_library\   ← 底部一行简短说明
 ```
 
-所有内容都按 ComfyUI 窄侧边栏（约 240–420px）设计：一律 flex + gap 布局、不用写死的固定高度（唯一的定位是收藏弹窗的遮罩，模态弹窗故意覆盖整屏）。
+所有内容都按 ComfyUI 窄侧边栏（约 240–420px）设计：一律 flex + gap 布局、不用写死的固定高度（唯一的定位是弹窗与灯箱的遮罩，模态弹窗故意覆盖整屏）。
 
 ### 1. 探针（扫描）
 
@@ -172,6 +173,25 @@ curl -s http://127.0.0.1:8188/extensions | grep -i prompt-library
 | 删除 | 弹二次确认，点「确认删除」才真正删除 |
 | 导出 JSON | 把收藏库导出成一个文件（浏览器下载），便于备份 |
 
+## 4.3 画师串（v0.3）
+
+顶部第三个页签「画师串 (N)」。**条目就是画师串本身**——没有名称/备注/模型字段。
+
+- **添加**：点「＋ 添加画师串」→ 粘贴串 →（可选）「从出图历史选图…」→ 保存。
+- **参考图**：选图弹窗显示最近出图（官方缩略图，网格加载，可「加载更多」翻页），点一张选中（再点取消）。
+  保存时自动把所选原图**压缩成约 1024px 的 webp 副本**存进
+  `user\default\prompt_library\artists\`——**你清理 output 后参考图不受影响**。
+  同时把该图在 output 里的位置（文件名/子文件夹）存进条目，灯箱会优先打开**原图**看清晰版。
+  保存大图会花几秒，按钮会显示「保存中…」。
+- **列表**：每条显示参考图缩略图（无图条目显示"无图"占位；**点缩略图灯箱放大**，点图片/遮罩/× 关闭）、串本身（2 行截断）、字数、收藏日期。
+- **灯箱**：优先显示 output 里的原图；原图被删或移动过时自动改显压缩副本，并在下方提示「原图已不在
+  output，显示压缩副本」。**只有新存或重新选过图的条目**才能看原图——更早的旧条目没有原图位置记录，
+  灯箱只会显示压缩副本。
+- **编辑**：改串、换图（「换一张…」）或移除图片；不动图时原图保留。
+- **删除**：二次确认；数据行和图片副本一起删除。
+- 数据文件：`prompt_library\artists.json`（+`artists.bak.json` 备份，与收藏库同一套安全写入：
+  原子替换、损坏拒写、多标签页 rev 合并）。
+
 ---
 
 ## 收藏数据存在哪、怎么保证不丢
@@ -218,13 +238,15 @@ ComfyUI-Prompt-Library/
 │   │   ├── library.mjs          # 收藏库数据模型：校验/新增/更新/删除/搜索/筛选/合并
 │   │   ├── storage.mjs          # 持久化：/userdata 读写 + 备份 + 合并 + 损坏保护
 │   │   ├── favorites.mjs        # 收藏弹窗 / 二次确认弹窗 / 收藏列表渲染
-│   │   ├── layout-audit.mjs     # 排版体检：重叠 / 横向溢出 / 撑破父容器 / 被裁切（只读测量）
-│   │   └── panel.mjs            # 侧边栏面板：顶部三行布局、扫描卡片、收藏列表
+│   │   ├── layout-audit.mjs     # 排版体检：重叠 / 横向溢出 / 撑破父容器 / 被裁切（v0.2，只读测量）
+│   │   ├── artists.mjs          # 画师串：数据模型（含 orig 原图路径）+ 弹窗 + 选图 + 1024px 副本 + 灯箱（原图优先/副本回退）
+│   │   └── panel.mjs            # 侧边栏面板：顶部三行布局、扫描卡片、收藏列表、画师串页（阶段一+二+v0.2/v0.3）
 │   └── tools/
 │       ├── selftest.mjs         # 自测①：解析核心（真实工作流，只读）
 │       ├── selftest_library.mjs # 自测②：收藏库逻辑 + 面板交互 + UI 结构（minidom + 假 api，不碰真实数据）
+│       ├── selftest_artists.mjs # 自测④：画师串（内存假 api + canvas 垫片，不碰真实数据）
 │       ├── selftest_storage.mjs # 自测③：持久化（打真实 /userdata，只用临时目录并自动清理）
-│       └── minidom.mjs          # 极简 DOM 垫片（仅供自测②使用）
+│       └── minidom.mjs          # 极简 DOM 垫片（仅供内存自测使用）
 └── devtools/                    # 可选：本地验证台（不参与 ComfyUI 运行，可直接删除）
     ├── harness.html             # 假画布页面，用真实工作流 JSON 驱动面板（含窄侧边栏两种宽度 + 假收藏库）
     ├── mock-app.mjs             # 把工作流 JSON 变成 litegraph 形状的假 app
@@ -244,8 +266,9 @@ ComfyUI-Prompt-Library/
 
 ```bash
 node web/tools/selftest.mjs           # ① 解析核心：真实工作流只读解析（29 项断言）
-node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构（100 项断言）
+node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（100 项断言）
 node web/tools/selftest_storage.mjs   # ③ 持久化：打真实 /userdata，只写临时目录并在结束前清理（23 项断言）
+node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（63 项断言）
 ```
 
 附加参数：
