@@ -20,6 +20,59 @@ const DEFAULT_DIR = 'prompt_library';
 const FILE_MAIN = 'library.json';
 const FILE_BACKUP = 'library.bak.json';
 
+/**
+ * makeFileStore —— /userdata 上"单个数据目录"的通用读写（画师串等新数据用它，逻辑与收藏库同构）：
+ *   · list()/readText()/readBin()/writeText()/writeBin()/remove()
+ *   · 路径规则同 makeStorage：整条相对路径 URL 编码（aiohttp 单段路由）。
+ */
+export function makeFileStore(api, opts = {}) {
+  const dir = opts.dir || DEFAULT_DIR;
+  const url = (name) => `/userdata/${encodeURIComponent(`${dir}/${name}`)}`;
+
+  async function request(name, init = {}) {
+    return await api.fetchApi(url(name), { cache: 'no-store', ...init });
+  }
+
+  return {
+    dir,
+    url,
+    async list(recursive = true) {
+      const res = await api.fetchApi(`/userdata?dir=${encodeURIComponent(dir)}&recurse=${recursive}&full_info=true`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`列出 ${dir} 失败：HTTP ${res.status}`);
+      return await res.json();
+    },
+    async readText(name) {
+      const res = await request(name);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`读取 ${name} 失败：HTTP ${res.status}`);
+      return await res.text();
+    },
+    async readBin(name) {
+      const res = await request(name);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`读取 ${name} 失败：HTTP ${res.status}`);
+      return new Uint8Array(await res.arrayBuffer());
+    },
+    async writeText(name, text) {
+      const res = await request(name, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text });
+      if (!res.ok) throw new Error(`写入 ${name} 失败：HTTP ${res.status}`);
+      return true;
+    },
+    /** 写二进制（图片副本）。userdata 目录不存在时后端会自动创建。 */
+    async writeBin(name, bytes, contentType = 'image/webp') {
+      const res = await request(name, { method: 'POST', headers: { 'Content-Type': contentType }, body: bytes });
+      if (!res.ok) throw new Error(`写入 ${name} 失败：HTTP ${res.status}`);
+      return true;
+    },
+    async remove(name) {
+      const res = await request(name, { method: 'DELETE' });
+      if (res.status === 404) return false;
+      if (!res.ok) throw new Error(`删除 ${name} 失败：HTTP ${res.status}`);
+      return true;
+    }
+  };
+}
+
 export function makeStorage(api, opts = {}) {
   const dir = opts.dir || DEFAULT_DIR;
   const lockName = opts.lockName || 'prompt-library-save';

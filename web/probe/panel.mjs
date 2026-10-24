@@ -14,9 +14,14 @@
 import { scan, STATUS_TEXT } from './resolver.mjs';
 import { createLiveView } from './graphview.mjs';
 import { renderLibraryView, openItemEditor, confirmDialog } from './favorites.mjs';
-import { makeStorage } from './storage.mjs';
+import { makeStorage, makeFileStore } from './storage.mjs';
 import { auditLayout } from './layout-audit.mjs';
 import { emptyLibrary, normalizeLibrary, upsertItem, removeItem, filterItems, validateItem, newId } from './library.mjs';
+import {
+  emptyArtists, normalizeArtists, mergeArtists, validateArtist, thumbFileFor, cleanOrig,
+  fetchHistoryPage, viewFullUrl, makeThumbBlob, loadImageObjectURL, releaseImage, releaseAllImages,
+  openArtistEditor, renderArtistsView
+} from './artists.mjs';
 
 const BADGE_CLASS = {
   confirmed: 'pp-badge-ok',
@@ -32,6 +37,7 @@ const PREVIEW_LINES = 3;
 export function createPanel(app, opts = {}) {
   const api = opts.api || globalThis.comfyAPI?.api?.api || null;
   const storage = api && typeof api.fetchApi === 'function' ? makeStorage(api) : null;
+  const artFiles = api && typeof api.fetchApi === 'function' ? makeFileStore(api, { dir: 'prompt_library' }) : null;
 
   const state = {
     /* 探针 */
@@ -50,7 +56,11 @@ export function createPanel(app, opts = {}) {
     libExpanded: new Set(),
     libNotice: null,
     libLoading: false,
-    lastModel: null
+    lastModel: null,
+    /* 画师串 */
+    artists: emptyArtists(),
+    artNotice: null,
+    artLoading: false
   };
 
   let rootEl = null;
@@ -350,6 +360,140 @@ export function createPanel(app, opts = {}) {
     });
   }
 
+  /* ================= 画师串：读写与界面动作 ================= */
+
+  const ART_FILE = 'artists.json';
+  const ART_BACKUP = 'artists.bak.json';
+
+  async function loadArtists() {
+    if (!artFiles) {
+      state.artNotice = { level: 'error', text: '未取到 ComfyUI API：画师串功能不可用。' };
+      render();
+      return;
+    }
+    state.artLoading = true;
+    render();
+    try {
+      const raw = await artFiles.readText(ART_FILE);
+      state.artLoading = false;
+      if (raw == null || !raw.trim()) {
+        state.artists = emptyArtists();
+        state.artNotice = null;
+      } else {
+        try {
+          state.artists = normalizeArtists(JSON.parse(raw));
+          state.artNotice = null;
+        } catch (e) {
+          state.artNotice = { level: 'error', text: `画师串文件不是合法 JSON，已停止写入以保护数据：${e.message}` };
+        }
+      }
+    } catch (e) {
+      state.artLoading = false;
+      state.artNotice = { level: 'error', text: `读取画师串失败：${errText(e)}` };
+    }
+    render();
+  }
+
+  /** 保存 artists.json（备份 + rev 合并，与收藏库同规则）。传入最终数据，返回保存后的数据。 */
+  async function saveArtists(next) {
+    if (!artFiles) throw new Error('未取到 ComfyUI API');
+    // 损坏拒写：磁盘内容不可解析时停手
+    const diskRaw = await artFiles.readText(ART_FILE);
+    let diskParsed = null;
+    if (diskRaw && diskRaw.trim()) {
+      try { diskParsed = normalizeArtists(JSON.parse(diskRaw)); } catch (e) { diskParsed = null; }
+      if (!diskParsed) throw new Error('磁盘上的画师串文件不是合法 JSON，为避免覆盖已停止写入');
+    }
+    let merged = normalizeArtists(next);
+    if (diskParsed && diskParsed.rev > merged.rev) merged = mergeArtists(merged, diskParsed);
+    if (diskRaw && diskRaw.trim()) {
+      try { await artFiles.writeText(ART_BACKUP, diskRaw); } catch (e) { /* 备份失败不阻断 */ }
+    }
+    const withRev = { ...merged, rev: Math.max(merged.rev, diskParsed?.rev || 0) + 1, updated_at: new Date().toISOString() };
+    await artFiles.writeText(ART_FILE, JSON.stringify(withRev, null, 2));
+    return withRev;
+  }
+
+  function askDeleteArtist(item) {
+    confirmDialog({
+      host: rootEl,
+      title: '删除这条画师串？',
+      message: `「${(item.text || '').slice(0, 60)}${(item.text || '').length > 60 ? '…' : ''}」将被删除（上一版仍保留在 artists.bak.json）。`,
+      confirmLabel: '确认删除',
+      onConfirm: async () => {
+        try {
+          const next = normalizeArtists({ ...state.artists, items: state.artists.items.filter((x) => x.id !== item.id) });
+          state.artists = await saveArtists(next);
+          if (item.thumb) { try { await artFiles.remove(item.thumb); } catch (e) { /* 图片删不掉不影响数据 */ } }
+          state.artNotice = { level: 'info', text: '已删除画师串' };
+        } catch (e) {
+          state.artNotice = { level: 'error', text: `删除失败（未写入，数据未变）：${errText(e)}` };
+        }
+        render();
+      }
+    });
+  }
+
+  /** 保存（新增/编辑）：处理选图 → 压缩 1024px 副本 → 写 artists.json；串就是标题，没有名称字段 */
+  async function persistArtist({ id, text, keepThumb, newPick }) {
+    if (!artFiles) return { ok: false, error: '未取到 ComfyUI API，无法保存' };
+    const check = validateArtist({ text });
+    if (!check.ok) return { ok: false, error: Object.values(check.errors).join('；') };
+    try {
+      const isNew = !id;
+      const itemId = id || newId();
+      let thumb = null;
+      let orig = null;
+      const old = state.artists.items.find((x) => x.id === itemId);
+
+      if (newPick) {
+        // 换图/新选图：拉原图 → canvas 压缩约 1024px → webp 副本；同时记下 output 原图位置
+        const { blob, ext } = await makeThumbBlob(viewFullUrl(newPick), 1024);
+        const name = `artists/img_${String(itemId).replace(/-/g, '').slice(0, 12)}.${ext}`;
+        await artFiles.writeBin(name, new Uint8Array(await blob.arrayBuffer()), `image/${ext}`);
+        thumb = name;
+        orig = cleanOrig(newPick);
+        // 新副本用同名（id 派生）：老扩展名不同时（webp↔jpeg）清理旧文件
+        if (old?.thumb && old.thumb !== name) {
+          try { await artFiles.remove(old.thumb); } catch (e) { /* 尽力而为 */ }
+        }
+      } else if (keepThumb) {
+        // 不动图：沿用旧 thumb 和旧 orig（否则编辑文案一次原图路径就丢了）
+        thumb = old?.thumb || null;
+        orig = old?.orig || null;
+      }
+      // 都不是（明确移除图片）→ thumb/orig 为 null，旧副本在保存成功后清理
+      let oldThumbWhenDropped = null;
+      if (!newPick && !keepThumb) {
+        oldThumbWhenDropped = old?.thumb || null;
+      }
+
+      const now = new Date().toISOString();
+      const next = normalizeArtists({ ...state.artists, items: state.artists.items.slice() });
+      const idx = next.items.findIndex((x) => x.id === itemId);
+      const entry = {
+        id: itemId,
+        text: String(text),
+        thumb,
+        orig,
+        created_at: idx >= 0 ? next.items[idx].created_at : now,
+        updated_at: now
+      };
+      if (idx >= 0) next.items[idx] = entry;
+      else next.items.push(entry);
+
+      state.artists = await saveArtists(next);
+      if (oldThumbWhenDropped) {
+        try { await artFiles.remove(oldThumbWhenDropped); } catch (e) { /* 尽力而为 */ }
+      }
+      state.artNotice = { level: 'info', text: isNew ? '已添加画师串' : '已更新画师串' };
+      render();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: errText(e) };
+    }
+  }
+
   /* ================= 探针：Prompt 卡片 ================= */
 
   /**
@@ -542,9 +686,11 @@ export function createPanel(app, opts = {}) {
   function renderSeg() {
     segEl.textContent = '';
     const favCount = (state.library.items || []).length;
+    const artCount = (state.artists.items || []).length;
     const items = [
       { id: 'scan', label: '探针' },
-      { id: 'library', label: `我的收藏 (${favCount})` }
+      { id: 'library', label: `我的收藏 (${favCount})` },
+      { id: 'artists', label: `画师串 (${artCount})` }
     ];
     for (const it of items) {
       const b = h('button', { class: `pp-seg-btn ${state.view === it.id ? 'pp-seg-on' : ''}`, text: it.label });
@@ -552,6 +698,10 @@ export function createPanel(app, opts = {}) {
         state.view = it.id;
         if (it.id === 'library') {
           loadLibrary();
+          return;
+        }
+        if (it.id === 'artists') {
+          loadArtists();
           return;
         }
         render();
@@ -565,6 +715,13 @@ export function createPanel(app, opts = {}) {
     if (state.view === 'scan') {
       toolbarEl.appendChild(actionBtn('重新扫描', rescan, 'pp-btn'));
       toolbarEl.appendChild(actionBtn('★ 收藏 Prompt', () => openFavorite({ fromSelection: true }), 'pp-btn pp-primary'));
+      return;
+    }
+    if (state.view === 'artists') {
+      // 画师串页工具条由 artists 视图渲染（添加 / 刷新）
+      const holder = h('div', { class: 'pp-lib-toolbar' });
+      toolbarEl.appendChild(holder);
+      toolbarEl.__artSlot = holder;
       return;
     }
     // 收藏页工具条由 favorites 渲染（搜索 / 筛选 / 刷新 / 导出）
@@ -657,6 +814,25 @@ export function createPanel(app, opts = {}) {
     }
   }
 
+  function renderArtists() {
+    bodyEl.appendChild(renderArtistsView({
+      data: state.artists,
+      items: state.artists.items,
+      notice: state.artLoading ? { level: 'info', text: '正在读取画师串…' } : state.artNotice,
+      toolbarSlot: toolbarEl.__artSlot || null,
+      api,
+      host: rootEl,
+      loadImage: (name) => loadImageObjectURL(api, name),
+      releaseImageRef: releaseImage,
+      handlers: {
+        onAdd: () => openArtistEditor({ host: rootEl, mode: 'create', item: {}, api, onSave: persistArtist }),
+        onEdit: (item) => openArtistEditor({ host: rootEl, mode: 'edit', item, api, onSave: persistArtist }),
+        onDelete: (item) => askDeleteArtist(item),
+        onReload: () => loadArtists()
+      }
+    }));
+  }
+
   function render() {
     if (!rootEl) return;
     renderSeg();
@@ -669,6 +845,11 @@ export function createPanel(app, opts = {}) {
       renderLibrary();
       return;
     }
+    if (state.view === 'artists') {
+      tabsEl.style.display = 'none';
+      renderArtists();
+      return;
+    }
     tabsEl.style.display = '';
     renderScan();
   }
@@ -677,7 +858,7 @@ export function createPanel(app, opts = {}) {
     rootEl = h('div', { class: 'pp-root' });
     rootEl.appendChild(h('div', { class: 'pp-head' }, [
       h('span', { class: 'pp-title', text: 'Prompt Library' }),
-      h('span', { class: 'pp-ver', text: 'v0.2 · 探针 / 收藏' })
+      h('span', { class: 'pp-ver', text: 'v0.3 · 探针 / 收藏 / 画师串' })
     ]));
     segEl = h('div', { class: 'pp-seg' });
     toolbarEl = h('div', { class: 'pp-toolbar' });
@@ -696,9 +877,11 @@ export function createPanel(app, opts = {}) {
 
     rescan();
     loadLibrary();
+    loadArtists();
   }
 
   function destroy() {
+    releaseAllImages();
     rootEl = null;
     segEl = null;
     toolbarEl = null;
@@ -716,6 +899,8 @@ export function createPanel(app, opts = {}) {
     openFavorite,
     loadLibrary,
     persistItem,
+    loadArtists,
+    persistArtist,
     setView: (v) => { state.view = v; render(); },
     /** 排版体检（只读测量，验收用） */
     auditLayout: () => auditLayout(rootEl)

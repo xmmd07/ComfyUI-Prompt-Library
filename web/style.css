@@ -3,7 +3,7 @@
    设计约束：
      · 面向 ComfyUI 窄侧边栏（240–420px），所有内容都必须能换行/压缩；
      · 一律使用 flex + gap 布局，不写死高度（除按钮/徽标这类固定高度的控件）；
-     · 唯一的定位是收藏弹窗的遮罩（position:fixed，故意覆盖全屏）；
+     · 唯一的定位是弹窗与灯箱的遮罩（position:fixed，故意覆盖全屏）；
      · 颜色全部走 ComfyUI 主题变量，未定义时回落到中性深色。
    ========================================================================== */
 
@@ -261,6 +261,12 @@
 
 .pp-btn:hover {
   border-color: var(--pp-accent);
+}
+
+.pp-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
 }
 
 .pp-btn-mini {
@@ -656,6 +662,113 @@ select.pp-input {
   margin-top: 8px;
 }
 
+/* ---------------- 画师串 ---------------- */
+
+.pp-art-list .pp-lib-item {
+  margin-bottom: 8px;
+}
+
+.pp-art-linerow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.pp-art-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pp-art-cardthumb {
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--pp-radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--pp-border-soft);
+  background: var(--pp-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pp-art-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pp-art-thumbph {
+  font-size: var(--pp-font-xs);
+  color: var(--pp-muted);
+}
+
+/* 编辑弹窗里的图片选择区 */
+.pp-art-pickbox {
+  min-width: 0;
+}
+
+.pp-art-thumbwrap {
+  flex: 0 0 84px;
+  width: 84px;
+  height: 84px;
+  border-radius: var(--pp-radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--pp-border);
+  background: var(--pp-bg);
+}
+
+.pp-art-pickthumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pp-art-pickinfo {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 出图历史网格（选择参考图） */
+.pp-art-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
+  margin: 8px 0;
+  max-height: 46vh;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.pp-art-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--pp-radius-sm);
+  overflow: hidden;
+  border: 2px solid var(--pp-border-soft);
+  cursor: pointer;
+  background: var(--pp-bg-3);
+}
+
+.pp-art-cell:hover {
+  border-color: var(--pp-accent);
+}
+
+.pp-art-cell-on {
+  border-color: var(--pp-accent);
+  box-shadow: 0 0 0 2px rgba(75, 139, 255, 0.35);
+}
+
+.pp-art-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 /* ---------------- 弹窗（唯一使用定位的地方：模态遮罩） ---------------- */
 
 .pp-overlay {
@@ -681,6 +794,45 @@ select.pp-input {
   border-radius: 10px;
   background: var(--pp-bg);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------------- 灯箱（点列表参考图放大查看） ---------------- */
+
+.pp-art-lightbox {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.pp-art-lightbox-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 100%;
+  align-items: center;
+}
+
+.pp-art-lightbox-img {
+  max-width: 100%;
+  max-height: calc(100vh - 64px);
+  object-fit: contain;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.pp-art-lightbox-note {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+}
+
+.pp-art-lightbox-x {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 10px;
 }
 
 .pp-dlg-sm {

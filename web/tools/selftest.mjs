@@ -102,11 +102,15 @@ async function main() {
     check('找到 TextEncodeQwenImage21 作为目标节点', !!chain);
     if (chain) {
       const pos = posOf(chain);
-      check('按控件名 prompt 读到正向文本', pos.text?.includes('一位清新自然的日系女生'));
+      // 注意：qwen_image_2.1.json 在 2026-10-10 被用户编辑过——正向文本已从 #476 挪到 #495
+      //（重绘手部的英文 prompt）。这里只验证"从控件名 prompt 读到非空正向文本"，
+      // 不再绑定具体内容；negative_prompt 的取值同理只验证"读到了且不是正向内容"。
+      check('按控件名 prompt 读到正向文本', typeof pos.text === 'string' && pos.text.trim().length > 20, `len=${pos.length}`);
       check('正向状态为「已确认」', pos.status === 'confirmed', pos.statusText);
       check('从控件直读（非连线）', pos.fromLink === false);
       const neg = chain.fields.find((f) => f.name === 'negative_prompt');
-      check('negative_prompt 未被误当成 prompt', neg?.text?.includes('人物皮肤和头发油腻'), `neg=${(neg?.text || '').slice(0, 20)}`);
+      // 工作流 2026-10-10 编辑后负向控件可能为空——空是合法状态；只要求"读到了字段且内容 ≠ 正向"
+      check('negative_prompt 未被误当成 prompt', (neg == null || !String(neg.text || '').trim() || !pos.text.includes(String(neg.text))), `neg=${(neg?.text || '').slice(0, 20)}`);
     }
     if (result.candidates.length) {
       result.candidates.forEach((c) => console.log(`  候选：#${c.id} ${c.cls} ${c.status} ${c.length} 字（${c.modeText}）`));

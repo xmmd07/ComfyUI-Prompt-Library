@@ -41,9 +41,29 @@ class Element {
     this.value = '';
     this.listeners = {};
     this.classList = new ClassList(this);
+    this._src = '';
+  }
+
+  /* <img> 的 src：设置时在微任务里派发 load 或 error（src 含 '404'/'missing' 时模拟加载失败），
+     供灯箱原图 404 回退逻辑在 Node 自测里真实跑通 */
+  get src() { return this._src; }
+  set src(v) {
+    this._src = String(v);
+    this.attributes['src'] = this._src;
+    const ok = !/404|missing/.test(this._src);
+    queueMicrotask(() => this.dispatch(ok ? 'load' : 'error'));
   }
 
   get childNodes() { return this.children; }
+
+  get isConnected() {
+    let n = this;
+    while (n) {
+      if (n.ownerDocument) return true;
+      n = n.parentNode;
+    }
+    return false;
+  }
 
   appendChild(child) {
     child.parentNode = this;
@@ -141,9 +161,11 @@ class Document {
   constructor() {
     this.head = new Element('head');
     this.body = new Element('body');
+    this.head.ownerDocument = this;
+    this.body.ownerDocument = this;
   }
-  createElement(tag) { return new Element(tag); }
-  createTextNode(text) { return new TextNode(text); }
+  createElement(tag) { const el = new Element(tag); el.ownerDocument = this; return el; }
+  createTextNode(text) { const n = new TextNode(text); n.ownerDocument = this; return n; }
   getElementById(id) {
     return this.body.querySelectorAll(`#${id}`)[0] || this.head.querySelectorAll(`#${id}`)[0] || null;
   }

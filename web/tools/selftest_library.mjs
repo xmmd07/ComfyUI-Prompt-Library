@@ -368,7 +368,7 @@ async function main() {
 
     check('第 1 行：品牌名 Prompt Library + 低优先级版本号',
       host3.querySelector('.pp-title')?.textContent === 'Prompt Library' && !!host3.querySelector('.pp-ver'));
-    check('第 2 行：统一的页面切换控件（两个分段按钮）', seg.length === 2 && /探针/.test(seg[0].textContent) && /我的收藏/.test(seg[1].textContent));
+    check('第 2 行：统一的页面切换控件（探针/收藏/画师串 三个分段按钮）', seg.length === 3 && /探针/.test(seg[0].textContent) && /我的收藏/.test(seg[1].textContent) && /画师串/.test(seg[2].textContent));
     check('探针页工具条只放探针页操作（重新扫描 / 收藏），不含导出',
       /重新扫描/.test(host3.querySelector('.pp-toolbar').textContent) && !/导出/.test(host3.querySelector('.pp-toolbar').textContent));
 
