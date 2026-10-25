@@ -198,8 +198,19 @@ async function main() {
     check('每段带 source（节点 cls/title）', segField.parts.every((s) => s.source?.cls && s.source?.title));
     const partsEl = segCard?.querySelector('.pp-parts');
     check('界面出现分段区块（details 默认折叠）', !!partsEl && /分段（2 段）/.test(partsEl.querySelector('summary')?.textContent || ''));
-    check('分段区块折叠时正文不含第 2 段文本（折叠有效）', !segCard.querySelector('.pp-parts').textContent.includes('SEG TEST') === false
-      || partsEl.open === false);
+    // 冒泡隔离：minidom 无事件冒泡（真实浏览器才有），直接断言 details 上绑了 click 拦截，
+    // 否则真机点分段 summary 会冒泡到卡片触发「选为收藏」（v0.4.1 真机 bug，自测测不出）
+    check('分段 details 绑定了 click 拦截（防冒泡误选中卡片）', (partsEl?.listeners?.click?.length || 0) >= 1);
+    check('summary 绑定了受控展开处理（防 render 后折叠状态丢失）', (partsEl?.querySelector('summary')?.listeners?.click?.length || 0) >= 1);
+    // 点击 summary 后受控展开：open 变 true 且卡片未被误选中
+    partsEl.querySelector('summary').dispatch('click');
+    await tick(2);
+    const partsEl2 = [...segHost.querySelectorAll('.pp-parts')][0];
+    check('点 summary 后分段区展开（受控 open=true）', partsEl2?.open === true, `open=${partsEl2?.open}`);
+    check('点分段不触发卡片选中（selected 仍为空）', segPanel.state.selected == null, JSON.stringify(segPanel.state.selected));
+    partsEl2.querySelector('summary').dispatch('click');
+    await tick(2);
+    check('再点 summary 收起（受控 open=false）', [...segHost.querySelectorAll('.pp-parts')][0]?.open === false);
     check('每段显示节点 title', /固定质量词｜通常无需修改/.test(partsEl.textContent) && /主体提示词｜每次只改这里/.test(partsEl.textContent));
     const segCopyBtns = [...partsEl.querySelectorAll('button')].filter((b) => /复制本段/.test(b.textContent));
     check('每段有独立复制按钮（2 个）', segCopyBtns.length === 2, `n=${segCopyBtns.length}`);

@@ -68,7 +68,9 @@ export function createPanel(app, opts = {}) {
     /* LoRA 提示词 */
     loras: emptyLoras(),
     loraNotice: null,
-    loraLoading: false
+    loraLoading: false,
+    /* 探针拼接分段区（chainKey -> 是否展开） */
+    partsOpen: new Set()
   };
 
   let rootEl = null;
@@ -672,7 +674,7 @@ export function createPanel(app, opts = {}) {
     return card;
   }
 
-  /** 拼接分段区块：默认折叠（details），每段节点title/输入口 + 全文（3 行截断可展开）+ 独立复制 */
+  /** 拼接分段区块：默认折叠，每段节点title/输入口 + 全文（3 行截断可展开）+ 独立复制 */
   function partsBlock(field, chainKey) {
     const segs = Array.isArray(field.parts) ? field.parts.filter((s) => (s.text || '') !== '') : [];
     if (segs.length <= 1) return null;
@@ -688,8 +690,8 @@ export function createPanel(app, opts = {}) {
           render();
         }, 'pp-btn pp-btn-mini')
       ]);
-      return h('div', { class: 'pp-seg' }, [
-        h('div', { class: 'pp-seg-h' }, [
+      return h('div', { class: 'pp-part' }, [
+        h('div', { class: 'pp-part-h' }, [
           h('span', { class: 'pp-mono pp-ellip', text: `第${i + 1}段 · ${src} · 输入口 ${s.name}`, title: `${src} · ${s.name}` }),
           badge(s.status, statusTextOf(s.status))
         ]),
@@ -699,10 +701,20 @@ export function createPanel(app, opts = {}) {
         segActions
       ]);
     });
-    return h('details', { class: 'pp-details pp-parts' }, [
+    const d = h('details', { class: 'pp-details pp-parts' }, [
       h('summary', { class: 'pp-summary', text: `分段（${segs.length} 段）｜点开看` }),
       ...segKids
     ]);
+    // 整区展开状态受控（存 state.partsOpen）：render 重建后不丢；点击不冒泡到卡片（避免误触发"选为收藏"）
+    d.open = state.partsOpen.has(chainKey);
+    d.addEventListener('click', (ev) => ev.stopPropagation());
+    d.querySelector('summary').addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (state.partsOpen.has(chainKey)) state.partsOpen.delete(chainKey);
+      else state.partsOpen.add(chainKey);
+      render();
+    });
+    return d;
   }
 
   /** 字段（正向/负向）→ 卡片 */

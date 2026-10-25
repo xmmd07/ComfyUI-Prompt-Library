@@ -238,7 +238,7 @@
   margin-top: 6px;
 }
 
-.pp-seg {
+.pp-part {
   padding: 6px;
   margin: 6px 0;
   background: var(--pp-bg-2);
@@ -247,14 +247,14 @@
   min-width: 0;
 }
 
-.pp-seg-h {
+.pp-part-h {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
-.pp-seg-h .pp-mono {
+.pp-part-h .pp-mono {
   flex: 1 1 auto;
 }
 
