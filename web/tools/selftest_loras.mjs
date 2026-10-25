@@ -36,11 +36,11 @@ const tick = (n = 1) => new Promise((r) => setTimeout(r, n));
 function makeFakeApi() {
   const files = new Map();
   const LORAS = [
-    'Flux2\\Flux2 Klein动漫转写实真人 AnythingtoRealCharacters（realistic style of a young Asian girl）-偏CG感.safetensors',
-    'Flux2\\Guin_Flux_Klein9B-CB.safetensors',
-    'anima\\Anima真人风格kinrolstyle.safetensors',
-    'anima\\DeepSeek_ZipZipPipe_style_anima2b.safetensors',
-    'MOSS-Image-SFT-8steps-DMD_latest.safetensors'
+    'Flux2\\lora_style_a.safetensors',
+    'Flux2\\lora_character_b.safetensors',
+    'anima\\lora_style_c.safetensors',
+    'anima\\lora_detail_d.safetensors',
+    'lora_root.safetensors'
   ];
   return {
     files,
@@ -116,9 +116,9 @@ async function main() {
     check('validate：缺 prompt 报错', validateLora({ lora: 'a.safetensors', prompt: '  ' }).ok === false);
     check('validate：正常通过', validateLora({ lora: 'a.safetensors', prompt: 'x' }).ok === true);
 
-    check('basename：反斜杠子目录取末段', loraBasename('Flux2\\Guin_Flux_Klein9B-CB.safetensors') === 'Guin_Flux_Klein9B-CB.safetensors');
+    check('basename：反斜杠子目录取末段', loraBasename('Flux2\\lora_character_b.safetensors') === 'lora_character_b.safetensors');
     check('basename：正斜杠子目录取末段', loraBasename('anima/x.safetensors') === 'x.safetensors');
-    check('basename：无目录原样返回', loraBasename('MOSS-Image-SFT-8steps-DMD_latest.safetensors') === 'MOSS-Image-SFT-8steps-DMD_latest.safetensors');
+    check('basename：无目录原样返回', loraBasename('lora_root.safetensors') === 'lora_root.safetensors');
   }
 
   /* ================= B. fetchLoraList ================= */
@@ -174,7 +174,7 @@ async function main() {
     await tick(8);
     const pickerDlg = topDlg();
     check('选择弹层出现并显示计数', !!pickerDlg && /共 5 个 LoRA/.test(pickerDlg.textContent), pickerDlg?.textContent?.slice(0, 60));
-    check('弹层显示 basename（不带子目录）', /Guin_Flux_Klein9B-CB\.safetensors/.test(pickerDlg.textContent) && !/Flux2\\/.test(pickerDlg.textContent));
+    check('弹层显示 basename（不带子目录）', /lora_character_b\.safetensors/.test(pickerDlg.textContent) && !/Flux2\\/.test(pickerDlg.textContent));
     const filterInput = pickerDlg.querySelector('input');
     filterInput.value = 'anima';
     filterInput.dispatch('input');
@@ -185,17 +185,17 @@ async function main() {
     filterInput.dispatch('input');
     await tick(2);
     check('无匹配显示提示', /没有匹配的 LoRA/.test(pickerDlg.textContent));
-    filterInput.value = 'Guin';
+    filterInput.value = 'lora_character_b';
     filterInput.dispatch('input');
     await tick(2);
     [...pickerDlg.querySelectorAll('.pp-lora-item')][0].click();
     await tick(4);
     dlg = topDlg();
-    check('选中后回填到编辑弹窗（显示 basename）', /Guin_Flux_Klein9B-CB\.safetensors/.test(dlg.textContent));
-    dlg.querySelector('textarea').value = ' masterpiece, best quality, guin style';
+    check('选中后回填到编辑弹窗（显示 basename）', /lora_character_b\.safetensors/.test(dlg.textContent));
+    dlg.querySelector('textarea').value = ' masterpiece, best quality, lora_character_b style';
     btnIn(dlg, '保存').click();
     await tick(14);
-    check('保存成功：列表出现 LoRA 名', hostEl.textContent.includes('Guin_Flux_Klein9B-CB.safetensors'));
+    check('保存成功：列表出现 LoRA 名', hostEl.textContent.includes('lora_character_b.safetensors'));
     check('提示词也显示在列表', /masterpiece, best quality/.test(hostEl.textContent));
     const saved1 = JSON.parse(api.files.get('prompt_library/loras.json'));
     check('loras.json 已落盘且 lora 存原始路径（反斜杠）', saved1.items.length === 1 && saved1.items[0].lora === api.loras[1], JSON.stringify(saved1.items[0]));
@@ -208,7 +208,7 @@ async function main() {
     copyBtn.click();
     await tick(4);
     check('复制提示词反馈', /已复制/.test(copyBtn.textContent));
-    check('剪贴板内容 = 提示词', minidom.copied.at(-1) === ' masterpiece, best quality, guin style');
+    check('剪贴板内容 = 提示词', minidom.copied.at(-1) === ' masterpiece, best quality, lora_character_b style');
     const copyNameBtn = btnIn(hostEl, '复制 LoRA 名');
     check('次按钮是「复制 LoRA 名」', !!copyNameBtn);
     copyNameBtn.click();
@@ -216,7 +216,7 @@ async function main() {
     check('剪贴板内容 = 原始 LoRA 路径', minidom.copied.at(-1) === api.loras[1]);
 
     /* 编辑：换 LoRA */
-    const card = [...hostEl.querySelectorAll('.pp-lib-item')].find((c) => c.textContent.includes('Guin'));
+    const card = [...hostEl.querySelectorAll('.pp-lib-item')].find((c) => c.textContent.includes('lora_character_b'));
     btnIn(card, '编辑').click();
     await tick(8);
     dlg = topDlg();
