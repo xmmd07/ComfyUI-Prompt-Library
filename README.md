@@ -181,6 +181,7 @@ curl -s http://127.0.0.1:8188/extensions | grep -i prompt-library
 
 - **添加**：点「＋ 添加画师串」→ 粘贴串 →（可选）「从出图历史选图…」→ 保存。
 - **参考图**：选图弹窗显示最近出图（官方缩略图，网格加载，可「加载更多」翻页），点一张选中（再点取消）。
+  落盘图（output）在前、**临时预览图（temp，带「临时图」角标）在后**——用 PreviewImage 类节点的工作流（如 SaveImageExtended 关闭了回报）也能选到刚生成的图；temp 图可能被 ComfyUI 清理，收藏时已存 1024px 副本兜底。
   保存时自动把所选原图**压缩成约 1024px 的 webp 副本**存进
   `user\default\prompt_library\artists\`——**你清理 output 后参考图不受影响**。
   同时把该图在 output 里的位置（文件名/子文件夹）存进条目，灯箱会优先打开**原图**看清晰版。
@@ -287,9 +288,9 @@ ComfyUI-Prompt-Library/
 
 ```bash
 node web/tools/selftest.mjs           # ① 解析核心：真实工作流只读解析（36 项断言）
-node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（122 项断言）
+node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（125 项断言）
 node web/tools/selftest_storage.mjs   # ③ 持久化：打真实 /userdata，只写临时目录并在结束前清理（23 项断言）
-node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（82 项断言）
+node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（85 项断言）
 node web/tools/selftest_loras.mjs     # ⑤ LoRA 提示词：内存假 api，不碰真实数据（49 项断言）
 ```
 

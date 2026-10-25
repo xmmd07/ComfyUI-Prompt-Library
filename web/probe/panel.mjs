@@ -74,6 +74,7 @@ export function createPanel(app, opts = {}) {
   };
 
   let rootEl = null;
+  let mountEl = null;            // 当前挂载的容器（幂等守卫用）
   let toolbarEl = null;
   let sumEl = null;
   let tabsEl = null;
@@ -298,6 +299,7 @@ export function createPanel(app, opts = {}) {
       render();
       return;
     }
+    if (state.libLoading) return;   // in-flight 守卫：重入直接跳过（幂等 mount 后可能并发触发）
     state.libLoading = true;
     render();
     try {
@@ -382,6 +384,7 @@ export function createPanel(app, opts = {}) {
       render();
       return;
     }
+    if (state.artLoading) return;   // in-flight 守卫
     state.artLoading = true;
     render();
     try {
@@ -518,6 +521,7 @@ export function createPanel(app, opts = {}) {
       render();
       return;
     }
+    if (state.loraLoading) return;   // in-flight 守卫
     state.loraLoading = true;
     render();
     try {
@@ -1083,10 +1087,15 @@ export function createPanel(app, opts = {}) {
   }
 
   function mount(el) {
+    // 幂等守卫：同一容器且还在文档里 → 不重建 DOM、不重新拉数据。
+    // （新版 ComfyUI 前端在画布交互时会重新触发 render 回调，无此守卫会导致
+    //   面板反复重建 + 「正在读取收藏库…」闪烁。真关闭侧边栏时 destroy 会清 rootEl，再开照常全量加载。）
+    if (rootEl && mountEl === el && el && el.isConnected) return;
+
     rootEl = h('div', { class: 'pp-root' });
     rootEl.appendChild(h('div', { class: 'pp-head' }, [
       h('span', { class: 'pp-title', text: 'Prompt Library' }),
-      h('span', { class: 'pp-ver', text: 'v0.4.3 · 探针 / 收藏 / 画师串 / LoRA' })
+      h('span', { class: 'pp-ver', text: 'v0.4.4 · 探针 / 收藏 / 画师串 / LoRA' })
     ]));
     segEl = h('div', { class: 'pp-seg' });
     toolbarEl = h('div', { class: 'pp-toolbar' });
@@ -1102,6 +1111,7 @@ export function createPanel(app, opts = {}) {
 
     el.textContent = '';
     el.appendChild(rootEl);
+    mountEl = el;
 
     rescan();
     loadLibrary();
@@ -1112,6 +1122,7 @@ export function createPanel(app, opts = {}) {
   function destroy() {
     releaseAllImages();
     rootEl = null;
+    mountEl = null;
     segEl = null;
     toolbarEl = null;
     sumEl = null;

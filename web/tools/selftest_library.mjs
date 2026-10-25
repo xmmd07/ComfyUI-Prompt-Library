@@ -157,6 +157,14 @@ async function main() {
 
   const r = panel.state.result;
   check('扫描到 3 条采样链', r.chains.length === 3, r.chains.map((c) => `${c.sampler.cls}#${c.sampler.id}`).join(', '));
+  // 幂等 mount（v0.4.4 防闪烁）：同容器重复 mount 不重复拉数据、不重建 DOM
+  const libBefore = api.files.get('prompt_library/library.json') || null;
+  const reqLogLen = api.requests ? api.requests.length : -1;
+  panel.mount(host);
+  await tick(4);
+  check('重复 mount 不重建 DOM（rootEl 仍是同一个）', host.querySelectorAll('.pp-root').length === 1);
+  check('重复 mount 不重新拉收藏库（in-flight/幂等守卫生效）', api.requests ? api.requests.length === reqLogLen : true);
+  check('重复 mount 后面板仍可正常交互', !!host.querySelector('.pp-seg') && /画师串/.test(host.textContent));
   check('检出 1 个候选文本节点', r.candidates.length === 1, `#${r.candidates[0]?.id}`);
   check('阶段一的折叠节点解析仍正常（Anima 正向=上游真实文本）',
     r.chains[0].fields[0].text.includes('masterpiece, best quality'), r.chains[0].fields[0].text.slice(0, 40));

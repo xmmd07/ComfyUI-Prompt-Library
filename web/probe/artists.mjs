@@ -88,18 +88,25 @@ export const thumbFileFor = (id) => `artists/img_${String(id).replace(/-/g, '').
 
 /** 把 /history 的返回摊平成「output 图片」列表（只取真正落盘的出图） */
 export function flattenHistoryImages(historyJson) {
+  const entries = Object.entries(historyJson || {});
   const out = [];
-  const entries = historyJson && typeof historyJson === 'object' ? Object.entries(historyJson) : [];
+  const seen = new Set();            // filename+subfolder 去重：同一张图经多个节点回报（如对比器 a/b_images）只取一次
   for (const [promptId, rec] of entries) {
     const outputs = rec?.outputs || {};
     for (const nodeId of Object.keys(outputs)) {
       for (const im of outputs[nodeId]?.images || []) {
-        if ((im.type || 'output') !== 'output' || !im.filename) continue;
-        out.push({ filename: im.filename, subfolder: im.subfolder || '', type: 'output', prompt_id: promptId });
+        const type = (im.type || 'output') === 'temp' ? 'temp' : 'output';
+        if (!im.filename) continue;
+        const key = `${im.filename}\u0000${im.subfolder || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ filename: im.filename, subfolder: im.subfolder || '', type, prompt_id: promptId });
       }
     }
   }
-  // 新→旧：/history 本身是新的在前，但摊平后同一记录内顺序无保证，稳定排序即可
+  // 新→旧：/history 本身是新的在前，但摊平后同一记录内顺序无保证，稳定排序即可；
+  // 选图网格里 output 排前、temp 排后（temp 是预览图，可能被 ComfyUI 定期清理）
+  out.sort((a, b) => (a.type === b.type ? 0 : a.type === 'output' ? -1 : 1));
   return out;
 }
 
@@ -113,7 +120,8 @@ export async function fetchHistoryPage(api, { limit = 24, offset = 0 } = {}) {
 
 /** 出图缩略图（官方 /view preview 参数，ComfyUI 自己的历史面板同款；网格用，快） */
 export function viewThumbUrl(im) {
-  const q = new URLSearchParams({ filename: im.filename, subfolder: im.subfolder || '', type: 'output', preview: 'webp;8' });
+  const type = im.type === 'temp' ? 'temp' : 'output';
+  const q = new URLSearchParams({ filename: im.filename, subfolder: im.subfolder || '', type, preview: 'webp;8' });
   return `/view?${q}`;
 }
 
@@ -451,8 +459,13 @@ export function openHistoryPicker({ host, api, onPick }) {
 
   const addCells = (imgs) => {
     for (const im of imgs) {
-      const box = h('div', { class: 'pp-art-cell', title: `${im.filename}${im.subfolder ? ` · ${im.subfolder}` : ''}` }, [
-        h('img', { class: 'pp-art-img', loading: 'lazy', src: viewThumbUrl(im), alt: im.filename })
+      const isTemp = im.type === 'temp';
+      const box = h('div', {
+        class: `pp-art-cell${isTemp ? ' pp-art-cell-temp' : ''}`,
+        title: `${im.filename}${im.subfolder ? ` · ${im.subfolder}` : ''}${isTemp ? '（临时图：可能被 ComfyUI 清理，收藏时已存副本）' : ''}`
+      }, [
+        h('img', { class: 'pp-art-img', loading: 'lazy', src: viewThumbUrl(im), alt: im.filename }),
+        isTemp ? h('span', { class: 'pp-art-temp-badge', text: '临时图' }) : null
       ]);
       box.addEventListener('click', () => {
         selected = (selected && selected.im.filename === im.filename && selected.im.subfolder === im.subfolder) ? null : { im, box };

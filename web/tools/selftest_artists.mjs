@@ -198,8 +198,23 @@ async function main() {
     api.history.push({ prompt_id: 'p1', images: [{ filename: 'a.png', subfolder: '', type: 'output' }, { filename: 'b.png', subfolder: 'sub', type: 'output' }, { filename: 'temp.png', type: 'temp' }] });
     api.history.push({ prompt_id: 'p2', images: [{ filename: 'c.png', type: 'output' }] });
     const flat = flattenHistoryImages({ p1: { outputs: { n: { images: api.history[0].images } } }, p2: { outputs: { n: { images: api.history[1].images } } } });
-    check('摊平：只取 output，跳过 temp', flat.length === 3);
+    check('摊平：output 在前、temp 在后（temp 保留不再丢弃）', flat.length === 4
+      && flat.slice(0, 3).every((x) => x.type === 'output') && flat.at(-1).type === 'temp', JSON.stringify(flat.map((x) => x.type)));
     check('摊平：保留 subfolder', flat.some((x) => x.filename === 'b.png' && x.subfolder === 'sub'));
+    check('去重：同一张图经多节点回报只取一次', (() => {
+      const dup = flattenHistoryImages({ p1: { outputs: {
+        n1: { images: [{ filename: 'same.png', subfolder: '', type: 'output' }] },
+        n2: { images: [{ filename: 'same.png', subfolder: '', type: 'output' }] }
+      } } });
+      return dup.length === 1;
+    })());
+    check('排序：output 排在 temp 前', (() => {
+      const mixed = flattenHistoryImages({ p1: { outputs: {
+        n1: { images: [{ filename: 't.png', subfolder: '', type: 'temp' }, { filename: 'o.png', subfolder: '', type: 'output' }] }
+      } } });
+      return mixed[0].type === 'output' && mixed[1].type === 'temp';
+    })());
+    check('temp 图的缩略/原图 URL 带 type=temp', viewThumbUrl({ filename: 't.png', subfolder: '', type: 'temp' }).includes('type=temp'));
 
     const page = await fetchHistoryPage(api, { limit: 1, offset: 0 });
     check('分页：offset/limit 生效', page.returned === 1 && page.imgs.length >= 1);
