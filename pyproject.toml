@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-prompt-library"
+description = "Sidebar prompt library for ComfyUI — probe workflow prompts, save favorites, artist strings & LoRA notes. Pure frontend, zero dependencies."
+version = "0.4.4"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+
+[project.urls]
+Repository = "https://github.com/xmmd07/ComfyUI-Prompt-Library"
+
+[tool.comfy]
+PublisherId = "xmmd07"
+DisplayName = "ComfyUI Prompt Library"
+Icon = ""
