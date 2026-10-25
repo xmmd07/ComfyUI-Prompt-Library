@@ -541,7 +541,7 @@ export function renderArtistsView(o) {
           h('div', { class: 'pp-lib-meta' }, [
             h('span', { class: 'pp-len', text: `${String(it.text || '').length} 字` }),
             h('span', {
-              class: 'pp-len',
+              class: 'pp-len pp-art-model',
               text: it.model ? `模型 ${basenameOf(it.model)}` : '未指定模型',
               title: it.model || '未指定模型'
             }),

@@ -243,6 +243,15 @@
   min-width: 0;
 }
 
+/* 列表元信息行里的模型名：长名截断（悬停看全名），否则窄侧边栏必撑破卡片 */
+.pp-art-model {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .pp-parts {
   margin-top: 6px;
 }
