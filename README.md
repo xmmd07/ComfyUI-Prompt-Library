@@ -1,374 +1,129 @@
 # ComfyUI Prompt Library
 
-一个**纯前端**的 ComfyUI 侧边栏插件：只读扫描当前工作流里的 Prompt，把满意的 Prompt 收藏成可搜索的本地库，并维护带参考图的画师串列表。
+A **pure-frontend** ComfyUI sidebar extension: it read-only scans the prompts in your current workflow, saves the good ones into a searchable local library, and keeps an artist-string list with reference images.
 
-- **探针（只读扫描）** —— 检查工作流里的 Prompt 到底能不能被正确读出来，以及它实际来自哪些节点；
-  拼接来源（StringConcatenate 系 / JoinStringMulti / CR Combine Prompt）支持**分段展示**，每段可单独复制、单独收藏（收藏弹窗预填该段全文，来源带分段标记）。
-- **我的收藏** —— 收藏、搜索、筛选、查看、编辑、复制、删除。
-- **画师串** —— 手动画师串即条目，可选一张出图历史做参考图，点缩略图灯箱放大。
-- **LoRA 提示词** —— 为某个 LoRA 记一段提示词，列表直接显示，一键复制；点「添加」时才从 LoRA 列表里挑。
+[English](./README.md) | [简体中文](./README.zh-CN.md)
 
-无 Python 依赖、无 npm 依赖、不注册后端节点、不新增 HTTP 路由、不调用任何 AI API、不联网。
+**Four tabs in the sidebar:**
 
----
+- **Probe** (read-only scan) — checks whether prompts in your workflow can actually be read correctly, and which node each one comes from. For prompts assembled by concat nodes (`StringConcatenate` family / `JoinStringMulti` / `CR Combine Prompt`), it shows **per-segment breakdown**: each segment can be copied or favorited on its own.
+- **Favorites** — save, search, filter, view, edit, copy, delete.
+- **Artist Strings** — each entry is the artist string itself; optionally attach a reference image from your output history and zoom it in a lightbox.
+- **LoRA Notes** — attach a note ("which spell works with this LoRA") to any LoRA; pick from your LoRA list when adding.
 
-## 环境要求
+No Python deps, no npm deps, no backend nodes, no new HTTP routes, no AI API calls, fully offline.
 
-| 项目 | 要求 |
+## Requirements
+
+| Item | Requirement |
 |---|---|
-| ComfyUI 后端 | 0.37.2 及以上 |
-| ComfyUI 前端 | 1.52.7 及以上（侧边栏 API `registerSidebarTab` 由该版本提供） |
-| Node.js | 仅在运行自测时需要，插件本身运行不需要 |
-| Python / npm 依赖 | **无** |
+| ComfyUI backend | 0.37.2 or later |
+| ComfyUI frontend | 1.52.7 or later (sidebar API `registerSidebarTab`) |
+| Node.js | only for running the self-tests; the extension itself doesn't need it |
+| Python / npm dependencies | **none** |
 
-已在 ComfyUI 后端 0.37.2 + 前端 1.52.7（秋葉 aki-v3 整合版）实测通过。
+Tested on ComfyUI backend 0.42.3 + frontend 1.55.18 (AIO packages fine).
 
----
+## Install
 
-## 安装
-
-### 方式一：git clone（推荐）
+### Option A: git clone (recommended)
 
 ```bash
-cd <你的 ComfyUI 目录>/custom_nodes
+cd <your ComfyUI dir>/custom_nodes
 git clone https://github.com/xmmd07/ComfyUI-Prompt-Library.git
 ```
 
-### 方式二：下载 ZIP
+### Option B: download ZIP
 
-在仓库页面点 **Code → Download ZIP**，解压后把整个 `ComfyUI-Prompt-Library` 文件夹放进：
+On the repo page, **Code → Download ZIP**, unzip, and put the whole `ComfyUI-Prompt-Library` folder into `<your ComfyUI dir>/custom_nodes/`. You should end up with `<your ComfyUI dir>/custom_nodes/ComfyUI-Prompt-Library/__init__.py`.
 
-```
-<你的 ComfyUI 目录>/custom_nodes/
-```
+### You must restart ComfyUI after installing
 
-放好后应存在 `<你的 ComfyUI 目录>/custom_nodes/ComfyUI-Prompt-Library/__init__.py`。
+Frontend extension folders (`WEB_DIRECTORY`) are registered **at startup**; JS dropped in afterwards is not hot-loaded. Restarting discards unsaved canvas changes — save your workflow first.
 
-### 装完必须重启 ComfyUI
+## Verify it loaded
 
-前端扩展目录（`WEB_DIRECTORY`）是在 ComfyUI **启动时**登记的，启动之后新放进去的 JS 不会被热加载。
+Any one of these:
 
-- 绘世启动器：停止 → 启动；
-- 或直接关闭正在运行的 ComfyUI 窗口，再启动一次。
+- `curl http://127.0.0.1:8188/extensions | grep -i prompt-library` → path shown;
+- Browser console (F12) shows: `[Prompt Probe] sidebar tab registered "Prompt Library" v0.4.4`;
+- A magnifier icon appears in the left sidebar icon rail; hovering shows `Prompt Library`.
 
-> ⚠️ 重启会丢失画布上未保存的工作流改动，重启前请先保存正在编辑的工作流。
+## Usage
 
----
+### 1. Probe (scan)
 
-## 验证插件是否已加载
+Open the sidebar tab, click **Rescan**. Each recognized prompt card shows: role (positive/negative), target encode node, status badge, character count, and a 3-line preview. The **status badge** tells you how trustworthy the text is:
 
-三种方式任选其一。
+- **Confirmed** — read statically from a widget or fully-traced link; safe to favorite.
+- **Partially confirmed** — assembled from linked sources where at least one segment couldn't be read statically.
+- **Candidate** — from an unregistered third-party text node; shown but flagged.
+- **Runtime-generated** — the text is produced at run time (TextGenerate, StringFormat, etc.); static analysis can't read it.
+- **Unconfirmed** — nothing readable.
 
-**方式 A · 看侧边栏（最直观）**
+Cards assembled from concat nodes have a **Segments (N)** block: expand it to see each segment (source node + input slot + full text) with its own **Copy** and **★ Favorite this segment** buttons. That's the fix for "my quality words and subject prompt got merged and I can only copy the whole blob".
 
-重启后，ComfyUI 左侧竖排图标栏会多出一个放大镜图标，悬停显示 `Prompt Library`；点开即为面板。
+### 2. Favorite a prompt
 
-**方式 B · 看浏览器控制台**
+Click a card (or **★ Favorite**), pick a model category, add a title, save. Favorites live in `ComfyUI/user/default/prompt_library/library.json`, searchable by title and filterable by category.
 
-打开开发者工具（F12 → Console），应能看到：
+### 3. Artist Strings
 
-```
-[Prompt Probe] 已注册侧边栏标签「Prompt Library」v0.4.3（提示词探针只读 + 本地收藏）
-```
+Third tab. **The string itself is the entry** — no name/remark fields. Optionally pick a reference image from your output history; on save the plugin compresses it to a ~1024px webp copy stored in `user/default/prompt_library/artists/`, so it survives output-folder cleanups. If the workflow recorded where the original lives, the lightbox shows the full-res original first and falls back to the copy when it's gone.
 
-并可在 Console 里执行只读调试命令：
+Each entry can also record a **main model** (from `diffusion_models`) — useful because the same artist string renders differently across fine-tunes.
 
-```js
-window.__promptProbe.version                                      // "0.4.3"
-window.__promptProbe.scanLive()                                   // 扫描当前画布并返回结构化结果
-await window.__promptProbe.scanWorkflowFile("my-workflow.json")   // 只读解析某个工作流文件（不打开它）
-window.__promptProbe.library.state().library                      // 当前收藏库（内存中）
-await window.__promptProbe.library.reload()                       // 从磁盘重新载入收藏
-```
+### 4. LoRA Notes
 
-**方式 C · 命令行检查服务是否已登记本扩展**
+Fourth tab. Click **Add**, pick a LoRA from the popup list (with a filter box), type the prompt that works with it. Each entry shows the LoRA name and the note, each with a one-click copy button. Nothing about your LoRA list is displayed until you click Add.
 
-```bash
-curl -s http://127.0.0.1:8188/extensions | grep -i prompt-library
-# 期望输出包含："/extensions/ComfyUI-Prompt-Library/prompt_probe.js"
-```
+## Where data lives
 
-（重启前这条不会有输出，属正常。）
+Everything is stored under `ComfyUI/user/default/prompt_library/` via the official `/userdata` API:
 
----
+- `library.json` — favorites
+- `artists.json` + `artists/` — artist strings and reference-image copies
+- `loras.json` — LoRA notes
 
-## 使用
+Writes are atomic with a `.bak.json` backup; if the on-disk JSON is corrupt the panel refuses to write instead of clobbering it. Uninstalling the extension never deletes this folder.
 
-顶部布局如下，两个视图共用同一套按钮高度、圆角、间距与徽标配色：
+## Known limitations
 
-```
-┌ Prompt Library   v0.4.3 · 探针 / 收藏 / 画师串 / LoRA   ← 第 1 行：品牌 + 版本
-├ [ 探针 ] [ 我的收藏 (N) ] [ 画师串 (N) ] [ LoRA 提示词 (N) ]   ← 第 2 行：视图切换
-├ 探针页：  [重新扫描] [★ 收藏 Prompt]        ← 第 3 行：只放当前视图的操作
-│ 收藏页：  [按标题搜索…]                     ←   （搜索框独占一行）
-│           [全部模型 ▾] [刷新] [导出]
-└ 只读探针 · 收藏存于 user\default\prompt_library\   ← 底部一行简短说明
-```
+The panel marks these cases explicitly instead of guessing:
 
-所有内容都按 ComfyUI 窄侧边栏（约 240–420px）设计：一律 flex + gap 布局、不用写死的固定高度（唯一的定位是弹窗与灯箱的遮罩，模态弹窗故意覆盖整屏）。
+1. **Runtime-generated text** (TextGenerate, QwenImage21PromptEnhancerT8, StringFormat, RegexExtract, …) can't be read statically → labeled "runtime-generated".
+2. **Switch paths driven by runtime nodes** → no final text is claimed; both branches are listed as candidates.
+3. **Unregistered third-party text nodes** → a guess only when the node has exactly one text widget; otherwise "unconfirmed".
+4. **Segment breakdown only works for registered concat nodes** (StringConcatenate family, JoinStringMulti, CR Combine Prompt). Text merged by StringFormat or custom runtime nodes shows merged only.
+5. **Deep subgraphs** or unusual shapes may not be fully traced; it says so.
+6. **Temp (preview) images** can be picked for reference, but ComfyUI cleans them up on restart — the saved 1024px copy in the data folder is the durable one.
+7. **Model / LoRA names are not validated**: if you later delete or rename a model, the stored entry still shows the old name.
+8. The probe scans the **current canvas state** — click Rescan after changing the workflow.
 
-### 1. 探针（扫描）
+## Design constraints
 
-1. 侧边栏点开 `Prompt Library`。
-2. 打开要检查的工作流（面板不会改动它）。
-3. 点「重新扫描」（面板每次打开时也会自动扫描一次）。
+- Pure frontend; read-only toward the workflow. No Python packages installed, no core files touched.
+- Nothing is sent anywhere: no AI APIs, no telemetry, no network calls beyond your own ComfyUI server.
+- Layout is tuned for the narrow sidebar (240–420px) and audited with real rendering at 240/300/312/420px.
 
-面板内容：
-
-- **当前工作流名**、节点数、识别到的采样链数、候选文本数；
-- **每条采样链一个标签页**（如 `链1 · KSampler #350`、`链2 · ClownsharKSampler_Beta #288`），多条链可点击切换；
-- 链内每个文本字段（正向/负向）是一张**简洁卡片**，默认只显示：角色徽标、目标节点、**状态徽标**、**字符数**、**来源节点**、**3 行正文预览**，以及「选为收藏 / 复制 / 展开全文」按钮；
-- **低频技术信息**（取值链、节点 ID、字段名、读取备注、ComfySwitchNode 分支）收在卡片底部的 **「技术详情」** 里，点一下展开 —— 信息一条都没删，只是不再默认占屏；
-- **候选文本** 标签页：列出"没有被任何采样链引用"的文本编码节点（例如游离节点、被绕过的残留节点），它们**不会**被当作有效 Prompt。
-- 复制：点卡片里的「复制」（负向那一行有「复制负向」）。
-
-### 状态徽标的含义
-
-| 徽标 | 含义 |
-|---|---|
-| 已确认 | 全部取值都落在具体控件值上，且节点正常参与出图 |
-| 部分确认 | 文本读到了，但链路上有部分内容读不到（面板会列出具体位置） |
-| 候选文本 | 无法确认它是不是最终生效的文本（例如开关走向取决于运行期、未登记节点靠唯一文本控件推测） |
-| 运行时生成 | 文本由模型/节点在运行期生成（如 `TextGenerate`），静态读不到 |
-| 无法确认 | 读不到，且证据不足；面板会说明原因（缺配对 Set 节点、无连线等） |
-
-另外两种提示：
-
-- **`⚠ 当前处于「绕过(bypass)/静音(mute)」状态，不参与出图`**：该文本仅供参考。
-- **`该控件里还存有 N 字的旧文本，但已被连线取代`**：说明节点控件里的内容是残留值，面板用的是真正生效的连线结果。
-
-### 2. 收藏一条 Prompt
-
-1. 在「探针（扫描）」视图里，点某条 Prompt 的**整行**（或行内的「选为收藏」按钮）→ 该条被选中（蓝色高亮，顶部出现"已选中…"信息条）。
-2. 点右上角 **「★ 收藏 Prompt」**（或信息条里的「收藏这条」）。
-   - **没有选中任何条目时**，面板会提示"还没有选中 Prompt…"，**不会**随便存一条；
-   - 选中的条目内容为空（运行时生成/无法确认的项）时也会提示，不会保存。
-3. 弹窗里填写：
-   - **标题**（必填）
-   - **模型分类**（必填）：默认 Anima / Krea 2 / Qwen Image 2.1；选「＋ 新增模型分类…」可自己输入新的分类，保存后进入分类列表
-   - **Prompt 内容**：已自动填入解析结果，**可以随意编辑**（例如删掉固定的质量词）
-   - 弹窗顶部会保留**来源状态提示**（如果该条是"候选文本/部分确认/被绕过"，这里会明确写出来）
-4. 点「保存」。数据立即写入本地文件。
-
-### 3. 我的收藏
-
-顶部切到 **「我的收藏 (N)」**。工具条分两行排在页面顶部：第一行搜索框，第二行模型筛选 + 刷新 / 导出。
-
-每条收藏卡片自上而下是固定的四行 + 一行按钮：
-
-```
-① 收藏标题（粗体，最醒目，最多 2 行）        [模型标签]
-② [状态徽标] 字数 · 收藏于 时间
-③ 来源：工作流名 · 节点类 #ID · 角色
-④ Prompt 预览（最多 3 行，超出截断）
-   [查看完整] [编辑] [复制] [删除]
-```
-
-| 功能 | 说明 |
-|---|---|
-| 展示已保存的 Prompt | 卡片列表（标题比模型/状态标签更醒目；边框只有一层，靠间距分层级） |
-| 按标题搜索 | 顶部输入框即时过滤（不区分大小写）；筛选生效时下方显示「筛选后显示 X / 共 Y 条」 |
-| 按模型筛选 | 顶部下拉选择"全部模型 / 某个分类" |
-| 查看完整 | 展开/收起全文（默认只显示 3 行预览，长 Prompt 不再占满侧边栏） |
-| 编辑 | 改标题、模型分类、Prompt 内容（保留创建时间与 id） |
-| 一键复制 | 复制全文到剪贴板 |
-| 删除 | 弹二次确认，点「确认删除」才真正删除 |
-| 导出 JSON | 把收藏库导出成一个文件（浏览器下载），便于备份 |
-
-## 4.3 画师串（v0.3）
-
-顶部第三个页签「画师串 (N)」。**条目就是画师串本身**——没有名称/备注字段；v0.4.3 起可选主模型（见下）。
-
-- **添加**：点「＋ 添加画师串」→ 粘贴串 →（可选）「从出图历史选图…」→ 保存。
-- **参考图**：选图弹窗显示最近出图（官方缩略图，网格加载，可「加载更多」翻页），点一张选中（再点取消）。
-  落盘图（output）在前、**临时预览图（temp，带「临时图」角标）在后**——用 PreviewImage 类节点的工作流（如 SaveImageExtended 关闭了回报）也能选到刚生成的图；temp 图可能被 ComfyUI 清理，收藏时已存 1024px 副本兜底。
-  保存时自动把所选原图**压缩成约 1024px 的 webp 副本**存进
-  `user\default\prompt_library\artists\`——**你清理 output 后参考图不受影响**。
-  同时把该图在 output 里的位置（文件名/子文件夹）存进条目，灯箱会优先打开**原图**看清晰版。
-  保存大图会花几秒，按钮会显示「保存中…」。
-- **列表**：每条显示参考图缩略图（无图条目显示"无图"占位；**点缩略图灯箱放大**，点图片/遮罩/× 关闭）、串本身（2 行截断）、字数、收藏日期。
-- **灯箱**：优先显示 output 里的原图；原图被删或移动过时自动改显压缩副本，并在下方提示「原图已不在
-  output，显示压缩副本」。**只有新存或重新选过图的条目**才能看原图——更早的旧条目没有原图位置记录，
-  灯箱只会显示压缩副本。
-- **主模型（v0.4.3 新增，可选）**：从 `diffusion_models`（unet 与 diffusion_models 合并列表）里选一个
-  主模型，记「这段串配哪个模型出图」；选择弹层带过滤框，可清除；列表元信息行显示模型名（悬停看全名），
-  未选显示「未指定模型」。**模型名不校验存在性**：之后你删了/改名该模型，列表仍显示旧名，不报错。
-- **编辑**：改串、换图（「换一张…」）或移除图片；不动图时原图与模型保留。
-- **删除**：二次确认；数据行和图片副本一起删除。
-- 数据文件：`prompt_library\artists.json`（+`artists.bak.json` 备份，与收藏库同一套安全写入：
-  原子替换、损坏拒写、多标签页 rev 合并）。
-
-## 4.4 LoRA 提示词（v0.4）
-
-顶部第四个页签「LoRA 提示词 (N)」。给某个 LoRA 记一段"它适合配什么提示词"，保存后列表直接显示 LoRA 名和提示词。
-
-- **平时不列出全部 LoRA**：列表只显示你保存过的记录；点「＋ 添加 LoRA 提示词」才弹出选择层，
-  从 `/models/loras` 拉 LoRA 列表，顶部有**过滤框**（按包含匹配），点一条即选中。
-- **保存**：选 LoRA + 写提示词，两者都必填。LoRA 名在列表里显示文件名（子目录显示在旁边），悬停看完整路径。
-- **一键复制**：每条两个按钮——「复制提示词」（主用途）和「复制 LoRA 名」（复制的是原始相对路径，
-  含子目录，可直接粘进 LoRA 加载器）。
-- **编辑 / 删除**：编辑可改提示词或「换 LoRA…」；删除二次确认。
-- 数据文件：`prompt_library\loras.json`（+`loras.bak.json` 备份，同一套安全写入）。
-
----
-
-## 收藏数据存在哪、怎么保证不丢
-
-- 位置：`ComfyUI\user\default\prompt_library\library.json`（**独立数据目录，不在插件代码目录里**）
-  - 上一版内容：`library.bak.json`（每次保存前自动生成）
-  - 损坏隔离文件：`library.broken.<时间>.json`（仅在点"另存损坏文件并重建空库"时才会生成）
-- 写入方式：
-  1. 由 ComfyUI 后端完成落盘（官方 `/userdata` 接口），写入过程是**临时文件 + 原子替换**，写到一半断电/刷新不会产生"半截 JSON"；
-  2. 每次保存前把上一版复制到 `library.bak.json`，可随时手工回滚；
-  3. 保存前会重新读取磁盘版本，若磁盘更新（例如另一个标签页刚写过），按 `id` **合并**而不是覆盖，避免丢收藏；
-  4. 同一浏览器的并发保存用 Web Locks 串行化；
-  5. 若 `library.json` 已损坏（不是合法 JSON），**拒绝写入**并在面板上给出提示 +「导出原始内容」/「重试加载」/「另存损坏文件并重建空库」（后两个都需要二次确认）。
-
-> 收藏数据与插件代码完全分离：**更新或卸载插件都不会删除收藏数据**。
-
----
-
-## 卸载
-
-1. 关闭 ComfyUI（启动器 → 停止）。
-2. 删除整个目录：`ComfyUI\custom_nodes\ComfyUI-Prompt-Library\`
-3. 重新启动 ComfyUI。
-
-- **不会删除任何用户数据**：收藏文件在 `user\default\prompt_library\`，卸载插件不影响它；想让收藏也消失，需**手工**删除该目录（插件永远不会自动删）。
-- **不影响其他插件**：独立目录，不修改 `custom_nodes` 里的其他文件夹，也不修改 ComfyUI 核心。
-- 临时停用：把文件夹改名为 `ComfyUI-Prompt-Library.disabled`（或移到 `custom_nodes\.disabled\`），重启即可。
-
----
-
-## 目录结构
-
-```
-ComfyUI-Prompt-Library/
-├── __init__.py                  # 只声明 WEB_DIRECTORY = "./web"（不注册后端节点/路由）
-├── README.md                    # 本文件
-├── web/                         # 前端资源（会被 ComfyUI 挂到 /extensions/ComfyUI-Prompt-Library/）
-│   ├── prompt_probe.js          # 入口：registerExtension + registerSidebarTab（唯一被自动加载的文件）
-│   ├── style.css                # 面板样式（走 ComfyUI 主题变量）
-│   ├── probe/
-│   │   ├── adapters.mjs         # 节点适配器表：哪些类存文本、字符串来源规则（加新模型只改这里）
-│   │   ├── graphview.mjs        # 图抽象：活画布视图 / 工作流 JSON 视图（同一接口）
-│   │   ├── resolver.mjs         # 解析核心：采样链识别 + 文本递归解析 + 状态判定
-│   │   ├── library.mjs          # 收藏库数据模型：校验/新增/更新/删除/搜索/筛选/合并
-│   │   ├── storage.mjs          # 持久化：/userdata 读写 + 备份 + 合并 + 损坏保护
-│   │   ├── favorites.mjs        # 收藏弹窗 / 二次确认弹窗 / 收藏列表渲染
-│   │   ├── layout-audit.mjs     # 排版体检：重叠 / 横向溢出 / 撑破父容器 / 被裁切（v0.2，只读测量）
-│   │   ├── artists.mjs          # 画师串：数据模型（含 orig 原图路径）+ 弹窗 + 选图 + 1024px 副本 + 灯箱（原图优先/副本回退）
-│   ├── loras.mjs            # LoRA 提示词：数据模型 + /models/loras 选择弹层（过滤）+ 列表（一键复制）
-│   │   └── panel.mjs            # 侧边栏面板：顶部三行布局、扫描卡片、收藏列表、画师串页（阶段一+二+v0.2/v0.3）
-│   └── tools/
-│       ├── selftest.mjs         # 自测①：解析核心（真实工作流，只读）
-│       ├── selftest_library.mjs # 自测②：收藏库逻辑 + 面板交互 + UI 结构（minidom + 假 api，不碰真实数据）
-│       ├── selftest_artists.mjs # 自测④：画师串（内存假 api + canvas 垫片，不碰真实数据）
-│       ├── selftest_loras.mjs   # 自测⑤：LoRA 提示词（内存假 api，不碰真实数据）
-│       ├── selftest_storage.mjs # 自测③：持久化（打真实 /userdata，只用临时目录并自动清理）
-│       └── minidom.mjs          # 极简 DOM 垫片（仅供内存自测使用）
-└── devtools/                    # 可选：本地验证台（不参与 ComfyUI 运行，可直接删除）
-    ├── harness.html             # 假画布页面，用真实工作流 JSON 驱动面板（含窄侧边栏两种宽度 + 假收藏库）
-    ├── mock-app.mjs             # 把工作流 JSON 变成 litegraph 形状的假 app
-    ├── serve.mjs                # 本地静态服务器（只读，默认 127.0.0.1:8791）
-    └── cdp-shot.mjs             # 用本地 Edge/Chrome(headless) 渲染页面、跑 JS、出截图（零依赖）
-```
-
-> 注意：`web/**` 下除 `prompt_probe.js` 外都刻意用 `.mjs` 后缀 —— ComfyUI 会把
-> `WEB_DIRECTORY` 下所有 `*.js` 当作扩展入口自动加载，用 `.mjs` 可避免子模块被当成独立扩展重复加载
-> （它们仍能被入口文件通过相对路径 `import`，也能被 Node 自测直接引入）。
-
----
-
-## 开发与自测
-
-自测都不需要打开浏览器，在插件目录下运行（需要 Node.js）：
-
-> ⚠ 自测垫片（minidom）**没有事件冒泡**：凡是依赖「点击冒泡到父元素」或浏览器原生行为的交互（如 details 折叠、卡片整行点击选中），自测断言不到，必须在真实浏览器里点一遍验证。
+## Development & self-tests
 
 ```bash
-node web/tools/selftest.mjs           # ① 解析核心：真实工作流只读解析（36 项断言）
-node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（125 项断言）
-node web/tools/selftest_storage.mjs   # ③ 持久化：打真实 /userdata，只写临时目录并在结束前清理（23 项断言）
-node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（85 项断言）
-node web/tools/selftest_loras.mjs     # ⑤ LoRA 提示词：内存假 api，不碰真实数据（49 项断言）
+node web/tools/selftest.mjs           # ① resolver core: read-only parse of real workflow files
+node web/tools/selftest_library.mjs   # ② favorites logic + panel interactions (in-memory)
+node web/tools/selftest_storage.mjs   # ③ persistence: hits real /userdata, temp dir only (needs ComfyUI running)
+node web/tools/selftest_artists.mjs   # ④ artist strings (in-memory)
+node web/tools/selftest_loras.mjs     # ⑤ LoRA notes (in-memory)
 ```
 
-附加参数：
+304 assertions across the five suites. Interactions that depend on event bubbling can't be covered by the in-memory DOM shim — verify those in a real browser.
 
-```bash
-node web/tools/selftest.mjs --workflows "<你的 ComfyUI 目录>/user/default/workflows"
-node web/tools/selftest.mjs --oi "<object_info.json 的路径>"    # 服务器没开时用本地快照
-node web/tools/selftest_storage.mjs --dir prompt_library_selftest --comfy http://127.0.0.1:8188
-```
+## Uninstall
 
-退出码 0 = 全部通过。三个自测都不会读写真实收藏数据（①③ 只读工作流/临时目录，② 全部在内存里）。
+1. Stop ComfyUI.
+2. Delete `custom_nodes/ComfyUI-Prompt-Library/`.
+3. Your data in `user/default/prompt_library/` is **not** deleted; remove that folder manually if you want it gone.
 
-### 窄侧边栏排版体检（真实渲染，不是读代码）
+## License
 
-**方式 A · 直接在真实侧边栏里量**
-
-1. 打开 ComfyUI，侧边栏点开 `Prompt Library`；
-2. 按 `F12` → Console，粘贴回车：
-
-```js
-copy(JSON.stringify(window.__promptProbe.auditLayout(), null, 2))
-```
-
-输出 `ok: true` 表示**没有元素重叠、没有横向溢出、没有内容被撑破/裁切**（`hostWidth` 是当前侧边栏实际宽度）。
-若 `ok: false`，`overlaps / overflowX / overflowRight / clipped` 会逐条列出是哪个元素、和谁重叠、面积多少。
-
-**方式 B · 本地验证台（不用连 ComfyUI 图形界面）**
-
-```bash
-node devtools/serve.mjs            # 然后浏览器打开 http://127.0.0.1:8791/
-```
-
-页面左右各一个容器（300px / 420px，模拟窄侧边栏），加载真实工作流 JSON + 一份假收藏库（含超长标题/超长 Prompt/超长工作流名），可逐个点着看。
-
-**方式 C · 命令行出截图 + 自动体检（零依赖，用本地已装的 Edge 或 Chrome）**
-
-```bash
-# 1) 先起一个开了远程调试的 headless Edge/Chrome（临时的，不影响正在用的浏览器）
-"<Edge 或 Chrome 的可执行文件路径>" --headless=new --disable-gpu --no-first-run \
-  --remote-debugging-port=9222 --user-data-dir="%TEMP%\edge-cdp" about:blank
-# 2) 渲染 + 体检 + 截图
-node devtools/cdp-shot.mjs "http://127.0.0.1:8791/" out.png --width 860 --height 1000 \
-  --eval "window.__harness.load('my-workflow.json').then(()=>{window.__harness.setWidth(300,'a');return 1})" \
-  --eval "window.__harness.audit('a')"
-```
-
----
-
-## 已知局限
-
-面板会明确标注这些情况，不会猜。
-
-1. **运行期生成的文本**（`TextGenerate`、`QwenImage21PromptEnhancerT8`、`StringFormat`、`RegexExtract` 等）静态读不到 → 标为「运行时生成」，收藏时内容为空会被拦下。
-2. **开关走向无法静态判断时**（`ComfySwitchNode.switch` 由运行期节点驱动）→ 不给出"最终文本"，只列出两个分支并标为「候选文本」；此时仍可收藏，但弹窗会保留"未确认"提示，列表里也带同样徽标。
-3. **未登记的第三方文本节点**：只在"有唯一文本控件"时给出推测值并降级为「候选文本」，否则标「无法确认」。
-4. **子图（Subgraph，前端 1.52 新特性）**：会尝试向下递归，但嵌套很深或形态特殊时可能读不全，会标注。
-5. **云 API 伙伴节点**（如 `Krea2ImageNode`）不产生本地 conditioning 链，不会被识别为采样链目标。
-6. **分段展示只对已登记的拼接节点生效**（`StringConcatenate` / `StringConcatenate (Advanced)` /
-   `JoinStringMulti` / `CR Combine Prompt`）；用 `StringFormat` 或未登记的自定义拼接节点合的文本
-   只有合并结果，拆不出分段。
-7. **动态提示符**（`{a|b}`、`__wildcard__`）：命中时按字面展示，并提示"实际执行文本可能不同"。
-8. 面板基于**当前画布状态**扫描；改了工作流后请点「重新扫描」。
-9. 搜索目前只匹配**标题**；模型分类需要手动选择或新增（暂不做自动识别）。
-10. **极窄侧边栏下的折行**：侧边栏宽度小于约 330px 时，很长的节点类名（如 `TextEncodeKrea2OstrisEdit`）那一个信息行会自动折成 2–3 行。这是刻意选择 —— **宁可折行也不截断信息**（截断只用于标题/预览）。所有排版体检（重叠/溢出/撑破/裁切）在 240 / 300 / 312 / 420px 下均为 `ok: true`。
-
----
-
-## 设计约束
-
-- 只改动 `custom_nodes\ComfyUI-Prompt-Library\` 内的文件；不修改 ComfyUI 核心、其他自定义节点、模型、工作流、启动配置。
-- 无第三方依赖、不接入 MCP、不调用任何 AI API、不联网。
-- 唯一的数据写入发生在用户主动点保存/编辑/删除时（写 `user\default\prompt_library\library.json` 及 `library.bak.json` 备份）；插件不会在后台自动写任何东西，也不会自动删除收藏。
-- 不向 `/prompt` 提交任务（不会触发出图）；所有探针读取都是 GET。
-- 任何异常都在内部捕获并只写 `console.warn`，不会阻断 ComfyUI 启动。
-
----
-
-## 许可证
-
-本项目采用 [MIT License](LICENSE) 授权，可自由使用、修改、分发与商用，只需保留版权声明。
+MIT
