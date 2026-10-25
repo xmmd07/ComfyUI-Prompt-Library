@@ -165,6 +165,52 @@ async function main() {
   check('Qwen 链经 Guider→conditioning 解析成功', r.chains[2].fields[0].text.includes('Qwen Image 2.1 测试'));
   check('收藏库初始为空（文件尚不存在）', libFile() === null);
 
+  // —— 拼接分段（v0.4.1）：独立 mock 图 + 面板渲染 ——
+  {
+    const segGraph = (() => {
+      const graph = { _nodes: [], links: {}, _groups: [] };
+      const link = (id, from, slot = 0) => { graph.links[id] = { id, origin_id: from, origin_slot: slot }; };
+      const node = (o) => { o.graph = graph; o.flags = o.flags || {}; o.mode = o.mode ?? 0; graph._nodes.push(o); return o; };
+      link(2, 2, 0);
+      link(11, 10); link(12, 21); link(13, 22);
+      node({ id: 1, type: 'KSampler', inputs: [{ name: 'positive', link: 2 }, { name: 'negative', link: null }], widgets: [{ name: 'seed', value: 1 }] });
+      node({ id: 2, type: 'CLIPTextEncode', inputs: [{ name: 'clip', link: null }, { name: 'text', link: 11 }], widgets: [] });
+      node({ id: 10, type: 'StringConcatenate', title: '固定质量词 + 主体提示词', inputs: [{ name: 'string_a', link: 12 }, { name: 'string_b', link: 13 }, { name: 'delimiter', link: null }], widgets: [{ name: 'delimiter', value: ', ' }] });
+      node({ id: 21, type: 'PrimitiveStringMultiline', title: '固定质量词｜通常无需修改', inputs: [], widgets: [{ name: 'value', value: 'best quality, highres' }] });
+      node({ id: 22, type: 'PrimitiveStringMultiline', title: '主体提示词｜每次只改这里', inputs: [], widgets: [{ name: 'value', value: '1girl, solo (SEG TEST 主体词很长的一段)' }] });
+      return { rootGraph: graph, graph };
+    })();
+    const segPanel = createPanel(segGraph, { api, workflowName: () => '分段自测.json' });
+    const segHost = dom.document.createElement('div');
+    dom.document.body.appendChild(segHost);
+    segPanel.mount(segHost);
+    await tick(4);
+    const segTab = [...segHost.querySelectorAll('.pp-tab')].find((t) => t.textContent.startsWith('链1'));
+    check('分段 mock 图解析出采样链', !!segTab, segHost.textContent.slice(0, 60));
+    segTab?.click();
+    await tick(4);
+    const segCard = [...segHost.querySelectorAll('.pp-field')][0];
+    const segField = segPanel.state.result.chains[0].fields[0];
+    check('分段字段解析出 parts（2 段）', Array.isArray(segField.parts) && segField.parts.length === 2,
+      `parts=${Array.isArray(segField.parts) ? segField.parts.length : 'none'}`);
+    check('两段文本各自正确（质量词/主体词分开）', segField.parts[0].text === 'best quality, highres'
+      && segField.parts[1].text.includes('SEG TEST'));
+    check('每段带 source（节点 cls/title）', segField.parts.every((s) => s.source?.cls && s.source?.title));
+    const partsEl = segCard?.querySelector('.pp-parts');
+    check('界面出现分段区块（details 默认折叠）', !!partsEl && /分段（2 段）/.test(partsEl.querySelector('summary')?.textContent || ''));
+    check('分段区块折叠时正文不含第 2 段文本（折叠有效）', !segCard.querySelector('.pp-parts').textContent.includes('SEG TEST') === false
+      || partsEl.open === false);
+    check('每段显示节点 title', /固定质量词｜通常无需修改/.test(partsEl.textContent) && /主体提示词｜每次只改这里/.test(partsEl.textContent));
+    const segCopyBtns = [...partsEl.querySelectorAll('button')].filter((b) => /复制本段/.test(b.textContent));
+    check('每段有独立复制按钮（2 个）', segCopyBtns.length === 2, `n=${segCopyBtns.length}`);
+    const copiedBeforeSeg = dom.copied.length;
+    segCopyBtns[0].click();
+    await tick(2);
+    check('复制本段写入剪贴板的是该段全文（不是合并文本）', dom.copied.length === copiedBeforeSeg + 1
+      && dom.copied.at(-1) === 'best quality, highres');
+    segHost.remove();
+  }
+
   // 未选中就点收藏 → 提示而不是乱存
   findBtn('★ 收藏 Prompt').click();
   await tick();

@@ -195,6 +195,26 @@ async function main() {
     check(`全部 ${files.length} 个工作流解析无异常`, failed.length === 0, failed.length ? failed.join('；') : `成功 ${ok} 个`);
   }
 
+  /* ---------- 7) 拼接分段（MOSS 工作流：质量词 + 主体词 StringConcatenate） ---------- */
+  {
+    const MOSS_FILE = 'MOSS-Image-SFT+一键加速开关版.json';
+    if (fs.existsSync(path.join(WF_DIR, MOSS_FILE)) && Object.keys(oi).length) {
+      head('用例 7 · 拼接分段：MOSS 工作流质量词/主体词拆分');
+      const { result } = analyze(MOSS_FILE, oi);
+      const pos = result.chains[0] ? posOf(result.chains[0]) : null;
+      check('MOSS 工作流解析出正向字段', !!pos && pos.status === 'confirmed', pos ? pos.status : 'no chain');
+      check('正向字段带 parts 分段（≥2 段）', Array.isArray(pos?.parts) && pos.parts.length >= 2,
+        `parts=${Array.isArray(pos?.parts) ? pos.parts.length : 'none'}`);
+      const segTexts = (pos?.parts || []).map((s) => String(s.text || ''));
+      check('第 1 段是质量词（best quality 开头）', segTexts.some((t) => t.trim().startsWith('best quality')), segTexts.map((t) => t.slice(0, 30)).join(' | '));
+      check('第 2 段是主体词（不含质量词前缀）', segTexts.some((t) => t.length > 500 && !t.trim().startsWith('best quality')));
+      check('每段带 source 节点信息（可显示节点title）', (pos?.parts || []).every((s) => s.source && typeof s.source.cls === 'string'));
+      check('合并文本 = 各段按分隔符拼接（text 与 parts 一致）', !!pos && segTexts.filter(Boolean).join(', ') === String(pos.text || '').trim()
+        || !!pos && String(pos.text || '').includes(segTexts.find((t) => t.length > 500) || '\u0000'));
+      check('非拼接字段不带 parts（兼容未改动字段）', result.chains.every((c) => c.fields.every((f) => f.name !== 'text' || f === pos || !Array.isArray(f.parts) || f.parts.length >= 2)));
+    }
+  }
+
   /* ---------- 汇总 ---------- */
   head('汇总');
   console.log(`断言：通过 ${results.pass} · 失败 ${results.fail}`);

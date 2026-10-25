@@ -281,6 +281,7 @@ function extractField(view, encoder, fieldName) {
       status: r.status,
       source: r.source,
       path: r.path,
+      parts: r.parts,
       branches: r.branches || [],
       notes: (r.notes || []).slice(),
       fromLink: true,
@@ -403,6 +404,7 @@ function resolveJoin(view, node, ctx, self) {
   const statuses = [];
   const notes = [];
   const paths = [];
+  const segs = [];             // 分段明细（供界面分开展示/复制）：{name, text, status, source}
   for (let k = 1; k <= count; k++) {
     const name = `string_${k}`;
     const link = view.inputLink(node, name);
@@ -412,22 +414,26 @@ function resolveJoin(view, node, ctx, self) {
       statuses.push(r.status);
       if (r.path) paths.push(r.path);
       if (r.notes?.length) notes.push(`第${k}段：${r.notes.join('；')}`);
+      segs.push({ name, text: r.text, status: r.status, source: r.source || null });
     } else {
       const w = view.widget(node, name);
       if (w.found && w.value != null) {
         const text = String(w.value);
         parts.push(text);
         statuses.push('confirmed');
+        segs.push({ name, text, status: 'confirmed', source: self });
       } else {
         parts.push('');
         statuses.push('partial');
         notes.push(`第${k}段既没有连线也没有控件值（按空串处理）`);
+        segs.push({ name, text: '', status: 'partial', source: self });
       }
     }
   }
   const text = parts.join(delim);
   return {
     text,
+    parts: segs.filter((s) => (s.text || '') !== '').length > 1 ? segs : undefined,
     status: combineStatus(statuses, text),
     source: self,
     path: pathOf(node, `${node.cls}[${count}段 "${delim}"] ← ${paths.join(' + ') || '控件值'}`),
@@ -441,6 +447,7 @@ function resolveConcat(view, node, rule, ctx, self) {
   const statuses = [];
   const notes = [];
   const paths = [];
+  const segs = [];             // 分段明细（基于未过滤的原始数组，索引与 rule.parts 一一对应）
   for (const name of rule.parts) {
     const link = view.inputLink(node, name);
     if (link) {
@@ -448,15 +455,18 @@ function resolveConcat(view, node, rule, ctx, self) {
       parts.push(r.text == null ? '' : r.text);
       statuses.push(r.status);
       if (r.path) paths.push(r.path);
+      segs.push({ name, text: r.text, status: r.status, source: r.source || null });
     } else {
       const w = view.widget(node, name);
       if (w.found && w.value != null) {
         parts.push(String(w.value));
         statuses.push('confirmed');
+        segs.push({ name, text: String(w.value), status: 'confirmed', source: self });
       } else {
         parts.push('');
         statuses.push('partial');
         notes.push(`「${name}」读不到值`);
+        segs.push({ name, text: '', status: 'partial', source: self });
       }
     }
   }
@@ -465,6 +475,7 @@ function resolveConcat(view, node, rule, ctx, self) {
   const text = parts.filter((p) => p !== '').join(delim || '');
   return {
     text,
+    parts: segs.filter((s) => (s.text || '') !== '').length > 1 ? segs : undefined,
     status: combineStatus(statuses, text),
     source: self,
     path: pathOf(node, `${node.cls}(${rule.parts.join(' + ')}) ← ${paths.join(' + ') || '控件值'}`),

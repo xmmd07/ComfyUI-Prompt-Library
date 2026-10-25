@@ -2,7 +2,8 @@
 
 一个**纯前端**的 ComfyUI 侧边栏插件：只读扫描当前工作流里的 Prompt，把满意的 Prompt 收藏成可搜索的本地库，并维护带参考图的画师串列表。
 
-- **探针（只读扫描）** —— 检查工作流里的 Prompt 到底能不能被正确读出来，以及它实际来自哪些节点。
+- **探针（只读扫描）** —— 检查工作流里的 Prompt 到底能不能被正确读出来，以及它实际来自哪些节点；
+  拼接来源（StringConcatenate 系 / JoinStringMulti / CR Combine Prompt）支持**分段展示**，每段可单独复制。
 - **我的收藏** —— 收藏、搜索、筛选、查看、编辑、复制、删除。
 - **画师串** —— 手动画师串即条目，可选一张出图历史做参考图，点缩略图灯箱放大。
 - **LoRA 提示词** —— 为某个 LoRA 记一段提示词，列表直接显示，一键复制；点「添加」时才从 LoRA 列表里挑。
@@ -280,8 +281,8 @@ ComfyUI-Prompt-Library/
 三个自测都不需要打开浏览器，在插件目录下运行（需要 Node.js）：
 
 ```bash
-node web/tools/selftest.mjs           # ① 解析核心：真实工作流只读解析（29 项断言）
-node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（100 项断言）
+node web/tools/selftest.mjs           # ① 解析核心：真实工作流只读解析（36 项断言）
+node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（109 项断言）
 node web/tools/selftest_storage.mjs   # ③ 持久化：打真实 /userdata，只写临时目录并在结束前清理（23 项断言）
 node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（63 项断言）
 node web/tools/selftest_loras.mjs     # ⑤ LoRA 提示词：内存假 api，不碰真实数据（49 项断言）
@@ -342,10 +343,13 @@ node devtools/cdp-shot.mjs "http://127.0.0.1:8791/" out.png --width 860 --height
 3. **未登记的第三方文本节点**：只在"有唯一文本控件"时给出推测值并降级为「候选文本」，否则标「无法确认」。
 4. **子图（Subgraph，前端 1.52 新特性）**：会尝试向下递归，但嵌套很深或形态特殊时可能读不全，会标注。
 5. **云 API 伙伴节点**（如 `Krea2ImageNode`）不产生本地 conditioning 链，不会被识别为采样链目标。
-6. **动态提示符**（`{a|b}`、`__wildcard__`）：命中时按字面展示，并提示"实际执行文本可能不同"。
-7. 面板基于**当前画布状态**扫描；改了工作流后请点「重新扫描」。
-8. 搜索目前只匹配**标题**；模型分类需要手动选择或新增（暂不做自动识别）。
-9. **极窄侧边栏下的折行**：侧边栏宽度小于约 330px 时，很长的节点类名（如 `TextEncodeKrea2OstrisEdit`）那一个信息行会自动折成 2–3 行。这是刻意选择 —— **宁可折行也不截断信息**（截断只用于标题/预览）。所有排版体检（重叠/溢出/撑破/裁切）在 240 / 300 / 312 / 420px 下均为 `ok: true`。
+6. **分段展示只对已登记的拼接节点生效**（`StringConcatenate` / `StringConcatenate (Advanced)` /
+   `JoinStringMulti` / `CR Combine Prompt`）；用 `StringFormat` 或未登记的自定义拼接节点合的文本
+   只有合并结果，拆不出分段。
+7. **动态提示符**（`{a|b}`、`__wildcard__`）：命中时按字面展示，并提示"实际执行文本可能不同"。
+8. 面板基于**当前画布状态**扫描；改了工作流后请点「重新扫描」。
+9. 搜索目前只匹配**标题**；模型分类需要手动选择或新增（暂不做自动识别）。
+10. **极窄侧边栏下的折行**：侧边栏宽度小于约 330px 时，很长的节点类名（如 `TextEncodeKrea2OstrisEdit`）那一个信息行会自动折成 2–3 行。这是刻意选择 —— **宁可折行也不截断信息**（截断只用于标题/预览）。所有排版体检（重叠/溢出/撑破/裁切）在 240 / 300 / 312 / 420px 下均为 `ok: true`。
 
 ---
 

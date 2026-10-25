@@ -616,7 +616,7 @@ export function createPanel(app, opts = {}) {
    * 简洁卡片：标题行（角色 / 目标节点 / 状态 / 字数）→ 来源行 → 3 行预览 → 操作行 → 技术详情（可展开）
    * 所有识别信息都保留，只是把低频技术细节收进 details。
    */
-  function promptCard({ key, role, nodeLabel, status, mode, text, length, sourceLabel, warnings = [], details = [], selectPayload, extraMeta = null }) {
+  function promptCard({ key, role, nodeLabel, status, mode, text, length, sourceLabel, warnings = [], details = [], selectPayload, extraMeta = null, extraAfterActions = null }) {
     const isSelected = state.selected?.key === key;
     const isOpen = state.expanded.has(key);
 
@@ -655,6 +655,7 @@ export function createPanel(app, opts = {}) {
       })
     ]);
     kids.push(actions);
+    if (extraAfterActions) kids.push(extraAfterActions);
 
     if (details.length) {
       const d = h('details', { class: 'pp-details' }, [
@@ -669,6 +670,39 @@ export function createPanel(app, opts = {}) {
     const card = h('div', { class: `pp-field pp-selectable${isSelected ? ' pp-selected' : ''}` }, kids);
     card.addEventListener('click', () => toggleSelect(selectPayload, key));
     return card;
+  }
+
+  /** 拼接分段区块：默认折叠（details），每段节点title/输入口 + 全文（3 行截断可展开）+ 独立复制 */
+  function partsBlock(field, chainKey) {
+    const segs = Array.isArray(field.parts) ? field.parts.filter((s) => (s.text || '') !== '') : [];
+    if (segs.length <= 1) return null;
+    const segKids = segs.map((s, i) => {
+      const segKey = `${chainKey}-seg-${i}`;
+      const segOpen = state.expanded.has(segKey);
+      const src = s.source ? `${s.source.cls} #${s.source.id}${s.source.title ? `「${s.source.title}」` : ''}` : '（未知）';
+      const segActions = h('div', { class: 'pp-row', style: 'margin:4px 0' }, [
+        actionBtn(`复制本段 (${String(s.text || '').length} 字)`, () => copyText(s.text ?? '', segActions.querySelector('.pp-copy')), 'pp-btn pp-btn-mini pp-copy'),
+        actionBtn(segOpen ? '收起' : '展开', () => {
+          if (state.expanded.has(segKey)) state.expanded.delete(segKey);
+          else state.expanded.add(segKey);
+          render();
+        }, 'pp-btn pp-btn-mini')
+      ]);
+      return h('div', { class: 'pp-seg' }, [
+        h('div', { class: 'pp-seg-h' }, [
+          h('span', { class: 'pp-mono pp-ellip', text: `第${i + 1}段 · ${src} · 输入口 ${s.name}`, title: `${src} · ${s.name}` }),
+          badge(s.status, statusTextOf(s.status))
+        ]),
+        h('div', { class: segOpen ? '' : 'pp-clamp' }, [
+          h('pre', { class: 'pp-text', text: (s.text || '') === '' ? '（空）' : String(s.text) })
+        ]),
+        segActions
+      ]);
+    });
+    return h('details', { class: 'pp-details pp-parts' }, [
+      h('summary', { class: 'pp-summary', text: `分段（${segs.length} 段）｜点开看` }),
+      ...segKids
+    ]);
   }
 
   /** 字段（正向/负向）→ 卡片 */
@@ -690,6 +724,8 @@ export function createPanel(app, opts = {}) {
       ]));
     }
 
+    const partsEl = partsBlock(field, key);
+
     return promptCard({
       key,
       role: field.role,
@@ -701,6 +737,7 @@ export function createPanel(app, opts = {}) {
       sourceLabel: `来源：${srcNode}`,
       warnings: warningsFor({ chain, field, status: field.status }) ? [warningsFor({ chain, field, status: field.status })] : [],
       details,
+      extraAfterActions: partsEl,
       selectPayload: selectionFromField(chain, field)
     });
   }
