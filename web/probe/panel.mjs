@@ -1026,13 +1026,13 @@ export function createPanel(app, opts = {}) {
     const artCount = (state.artists.items || []).length;
     const loraCount = (state.loras.items || []).length;
     const items = [
-      { id: 'scan', label: '探针' },
-      { id: 'library', label: `我的收藏 (${favCount})` },
-      { id: 'artists', label: `画师串 (${artCount})` },
-      { id: 'loras', label: `LoRA 提示词 (${loraCount})` }
+      { id: 'scan', label: '探针', short: '探针' },
+      { id: 'library', label: `我的收藏 (${favCount})`, short: `收藏${favCount ? ' ·' + favCount : ''}` },
+      { id: 'artists', label: `画师串 (${artCount})`, short: `画师${artCount ? ' ·' + artCount : ''}` },
+      { id: 'loras', label: `LoRA 提示词 (${loraCount})`, short: `LoRA${loraCount ? ' ·' + loraCount : ''}` }
     ];
     for (const it of items) {
-      const b = h('button', { class: `pp-seg-btn ${state.view === it.id ? 'pp-seg-on' : ''}`, text: it.label });
+      const b = h('button', { class: `pp-seg-btn ${state.view === it.id ? 'pp-seg-on' : ''}`, text: it.short, title: it.label });
       b.addEventListener('click', () => {
         state.view = it.id;
         if (it.id === 'library') {

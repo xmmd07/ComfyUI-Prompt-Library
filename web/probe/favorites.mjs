@@ -337,7 +337,7 @@ export function renderLibraryView(o) {
           : null,
         h('span', { class: 'pp-len', text: `收藏于 ${fmtTime(it.created_at || it.updated_at)}` })
       ]),
-      h('div', { class: 'pp-lib-src', text: `来源：${srcText}` }),
+      h('div', { class: 'pp-lib-src', title: `来源：${srcText}`, text: `来源：${srcText}` }),
       h('div', { class: 'pp-lib-preview pp-clamp', text: String(it.text || '') || '（空）' }),
       h('div', { class: 'pp-lib-item-actions' }, [
         h('button', {

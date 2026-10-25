@@ -28,10 +28,11 @@
   --pp-info: #8ab6ff;
   --pp-radius: 8px;
   --pp-radius-sm: 6px;
-  --pp-btn-h: 24px;
+  --pp-btn-h: 26px;
+  --pp-btn-h-mini: 22px;
   --pp-font: 12px;
   --pp-font-sm: 11px;
-  --pp-font-xs: 10px;
+  --pp-font-xs: 10.5px;
 
   display: flex;
   flex-direction: column;
@@ -76,7 +77,7 @@
   flex: 1 1 0;
   min-width: 0;
   height: var(--pp-btn-h);
-  padding: 0 8px;
+  padding: 0 6px;
   font-size: var(--pp-font-sm);
   border: 1px solid var(--pp-border);
   border-radius: var(--pp-radius-sm);
@@ -314,9 +315,9 @@
 }
 
 .pp-btn-mini {
-  height: 20px;
+  height: var(--pp-btn-h-mini);
   padding: 0 8px;
-  font-size: var(--pp-font-xs);
+  font-size: var(--pp-font-sm);
 }
 
 .pp-primary {
@@ -723,10 +724,13 @@ select.pp-input {
 }
 
 .pp-lib-src {
-  margin-top: 4px;
+  margin-top: 3px;
   font-size: var(--pp-font-xs);
   color: var(--pp-muted);
   overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pp-lib-preview {
@@ -738,7 +742,7 @@ select.pp-input {
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   overflow: hidden;
 }
 
@@ -746,8 +750,8 @@ select.pp-input {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
   border-top: 1px solid var(--pp-border-soft);
 }
 

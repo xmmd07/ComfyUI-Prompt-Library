@@ -266,10 +266,10 @@ async function main() {
     panel.mount(hostEl);
     await tick(20);   // 等 loadLibrary/loadArtists 两次 render
 
-    const segLabels = () => [...hostEl.querySelectorAll('.pp-seg-btn')].map((b) => b.textContent);
+    const segLabels = () => [...hostEl.querySelectorAll('.pp-seg-btn')].map((b) => b.getAttribute('title') || b.textContent);
     check('页签变成四个（含 画师串 (0) 与 LoRA 提示词 (0)）', segLabels().length === 4 && /画师串 \(0\)/.test(segLabels()[2]) && /LoRA 提示词 \(0\)/.test(segLabels()[3]), segLabels().join(','));
 
-    const artTab = [...hostEl.querySelectorAll('.pp-seg-btn')].find((b) => /画师串/.test(b.textContent));
+    const artTab = [...hostEl.querySelectorAll('.pp-seg-btn')].find((b) => /画师/.test(b.textContent));
     artTab.click();
     await tick(10);
     check('画师串页：空态提示', /还没有画师串/.test(hostEl.textContent));

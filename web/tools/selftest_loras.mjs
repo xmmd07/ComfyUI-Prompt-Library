@@ -155,11 +155,11 @@ async function main() {
     const topDlg = () => [...hostEl.querySelectorAll('.pp-overlay .pp-dlg')].at(-1);
     const btnIn = (root, label) => root && [...root.querySelectorAll('button')].find((b) => b.textContent === label);
     const clickBtn = (root, label) => { const b = btnIn(root, label); if (b) b.click(); return !!b; };
-    const segLabels = () => [...hostEl.querySelectorAll('.pp-seg-btn')].map((b) => b.textContent);
+    const segLabels = () => [...hostEl.querySelectorAll('.pp-seg-btn')].map((b) => b.getAttribute('title') || b.textContent);
 
     check('页签有四个（含 LoRA 提示词 (0)）', segLabels().length === 4 && /LoRA 提示词 \(0\)/.test(segLabels()[3]), segLabels().join(','));
 
-    const loraTab = [...hostEl.querySelectorAll('.pp-seg-btn')].find((b) => /LoRA 提示词/.test(b.textContent));
+    const loraTab = [...hostEl.querySelectorAll('.pp-seg-btn')].find((b) => /LoRA/.test(b.textContent));
     loraTab.click();
     await tick(8);
     check('空态提示', /还没有记录/.test(hostEl.textContent));
@@ -260,7 +260,7 @@ async function main() {
     panel.setView('library');
     await tick(10);
     check('收藏页仍正常（无 LoRA UI 混入）', !!hostEl.querySelector('.pp-lib-toolbar input') && !/添加 LoRA 提示词/.test(hostEl.querySelector('.pp-toolbar').textContent));
-    [...hostEl.querySelectorAll('.pp-seg-btn')].find((b) => /画师串/.test(b.textContent)).click();
+    [...hostEl.querySelectorAll('.pp-seg-btn')].find((b) => /画师/.test(b.textContent)).click();
     await tick(10);
     check('画师串页仍正常', /添加画师串/.test(hostEl.textContent));
   }

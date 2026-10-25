@@ -142,7 +142,7 @@ async function main() {
 
   const $$ = (sel) => host.querySelectorAll(sel);
   const text = () => host.textContent;
-  const findBtn = (label, scope) => (scope || host).querySelectorAll('button').find((b) => b.textContent.includes(label));
+  const findBtn = (label, scope) => (scope || host).querySelectorAll('button').find((b) => b.textContent.includes(label) || (b.getAttribute('title') || '').includes(label));
   const selectableWith = (needle) => $$('.pp-selectable').find((el) => el.textContent.includes(needle));
   const openChainTab = async (n) => {
     const tab = host.querySelectorAll('.pp-tabs .pp-tab').find((t) => t.textContent.startsWith(`链${n}`));
@@ -532,7 +532,7 @@ async function main() {
 
     check('第 1 行：品牌名 Prompt Library + 低优先级版本号',
       host3.querySelector('.pp-title')?.textContent === 'Prompt Library' && !!host3.querySelector('.pp-ver'));
-    check('第 2 行：统一的页面切换控件（探针/收藏/画师串/LoRA 四个分段按钮）', seg.length === 4 && /探针/.test(seg[0].textContent) && /我的收藏/.test(seg[1].textContent) && /画师串/.test(seg[2].textContent) && /LoRA 提示词/.test(seg[3].textContent));
+    check('第 2 行：统一的页面切换控件（探针/收藏/画师串/LoRA 四个分段按钮，短名+title全名）', seg.length === 4 && /探针/.test(seg[0].textContent) && /收藏/.test(seg[1].textContent) && /画师/.test(seg[2].textContent) && /LoRA/.test(seg[3].textContent) && /我的收藏/.test(seg[1].getAttribute('title') || ''));
     check('探针页工具条只放探针页操作（重新扫描 / 收藏），不含导出',
       /重新扫描/.test(host3.querySelector('.pp-toolbar').textContent) && !/导出/.test(host3.querySelector('.pp-toolbar').textContent));
 
