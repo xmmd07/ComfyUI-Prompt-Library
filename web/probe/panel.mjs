@@ -1044,7 +1044,7 @@ export function createPanel(app, opts = {}) {
     rootEl = h('div', { class: 'pp-root' });
     rootEl.appendChild(h('div', { class: 'pp-head' }, [
       h('span', { class: 'pp-title', text: 'Prompt Library' }),
-      h('span', { class: 'pp-ver', text: 'v0.4 · 探针 / 收藏 / 画师串 / LoRA' })
+      h('span', { class: 'pp-ver', text: 'v0.4.1 · 探针 / 收藏 / 画师串 / LoRA' })
     ]));
     segEl = h('div', { class: 'pp-seg' });
     toolbarEl = h('div', { class: 'pp-toolbar' });
