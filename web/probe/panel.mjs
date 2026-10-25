@@ -509,8 +509,18 @@ export function createPanel(app, opts = {}) {
     input.click();
   }
 
-  /** 收藏使用频率：复制成功后 +1（内存），防抖 5 秒落盘一次 */
+  /** 收藏使用频率：复制成功后 +1（内存），防抖 5 秒落盘一次；切页/关面板立即 flush */
   const usageTimers = new Map();          // id -> timer
+  function flushUsage() {
+    for (const id of [...usageTimers.keys()]) {
+      clearTimeout(usageTimers.get(id));
+    }
+    usageTimers.clear();
+    if (!storage || !state.library) return;
+    storage.save(normalizeLibrary({ ...state.library, items: state.library.items.slice() }))
+      .then((res) => { state.library = res.library; state.library.__path = storage.paths.human; })
+      .catch(() => { /* 静默 */ });
+  }
   function bumpUsage(id) {
     const it = (state.library.items || []).find((x) => x.id === id);
     if (!it) return;
@@ -526,8 +536,16 @@ export function createPanel(app, opts = {}) {
     }, 5000));
   }
 
-  /** 画师串使用频率：复制成功后 +1（内存），防抖 5 秒落盘一次 */
+  /** 画师串使用频率：复制成功后 +1（内存），防抖 5 秒落盘一次；切页/关面板立即 flush */
   const artUsageTimers = new Map();
+  function flushArtistUsage() {
+    for (const id of [...artUsageTimers.keys()]) clearTimeout(artUsageTimers.get(id));
+    artUsageTimers.clear();
+    if (!artFiles || !state.artists) return;
+    saveArtists(normalizeArtists({ ...state.artists, items: state.artists.items.slice() }))
+      .then((saved) => { state.artists = saved; })
+      .catch(() => { /* 静默 */ });
+  }
   function bumpArtistUsage(id) {
     const it = (state.artists.items || []).find((x) => x.id === id);
     if (!it) return;
@@ -543,8 +561,16 @@ export function createPanel(app, opts = {}) {
     }, 5000));
   }
 
-  /** LoRA 使用频率：复制提示词/复制 LoRA 名成功后 +1（内存），防抖 5 秒落盘一次 */
+  /** LoRA 使用频率：复制提示词/复制 LoRA 名成功后 +1（内存），防抖 5 秒落盘一次；切页/关面板立即 flush */
   const loraUsageTimers = new Map();
+  function flushLoraUsage() {
+    for (const id of [...loraUsageTimers.keys()]) clearTimeout(loraUsageTimers.get(id));
+    loraUsageTimers.clear();
+    if (!artFiles || !state.loras) return;
+    saveLoras(normalizeLoras({ ...state.loras, items: state.loras.items.slice() }))
+      .then((saved) => { state.loras = saved; })
+      .catch(() => { /* 静默 */ });
+  }
   function bumpLoraUsage(id) {
     const it = (state.loras.items || []).find((x) => x.id === id);
     if (!it) return;
@@ -1242,6 +1268,9 @@ export function createPanel(app, opts = {}) {
   }
 
   function destroy() {
+    flushUsage();            // 防抖中的使用计数立即落盘，避免关面板丢计数
+    flushArtistUsage();
+    flushLoraUsage();
     releaseAllImages();
     rootEl = null;
     mountEl = null;
