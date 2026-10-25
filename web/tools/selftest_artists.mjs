@@ -156,7 +156,7 @@ async function main() {
   installCanvasShim();
 
   const { emptyArtists, normalizeArtists, mergeArtists, validateArtist, thumbFileFor,
-    flattenHistoryImages, fetchHistoryPage, viewThumbUrl, viewFullUrl, makeThumbBlob,
+    flattenHistoryImages, fetchHistoryPage, viewThumbUrl, viewFullUrl, makeThumbBlob, cleanOrig,
     loadImageObjectURL, releaseAllImages } = await import('../probe/artists.mjs');
   const { makeFileStore } = await import('../probe/storage.mjs');
   const { createPanel } = await import('../probe/panel.mjs');
@@ -215,6 +215,13 @@ async function main() {
       return mixed[0].type === 'output' && mixed[1].type === 'temp';
     })());
     check('temp 图的缩略/原图 URL 带 type=temp', viewThumbUrl({ filename: 't.png', subfolder: '', type: 'temp' }).includes('type=temp'));
+    check('temp 图的原图 URL（viewFullUrl）带 type=temp', viewFullUrl({ filename: 't.png', subfolder: '', type: 'temp' }).includes('type=temp'));
+    check('output 图的原图 URL 仍是 type=output', viewFullUrl({ filename: 'o.png', subfolder: '' }).includes('type=output'));
+    check('cleanOrig：旧数据无 type 归一化为 output（兼容）', (() => {
+      const o = cleanOrig({ filename: 'ComfyUI_00377_.png', subfolder: '' });
+      return o.type === 'output' && o.filename === 'ComfyUI_00377_.png';
+    })());
+    check('cleanOrig：temp 图 orig 带 type=temp（灯箱可直连原图）', cleanOrig({ filename: 'ComfyUI_temp_x.png', subfolder: '', type: 'temp' }).type === 'temp');
 
     const page = await fetchHistoryPage(api, { limit: 1, offset: 0 });
     check('分页：offset/limit 生效', page.returned === 1 && page.imgs.length >= 1);

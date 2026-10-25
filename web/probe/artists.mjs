@@ -25,14 +25,14 @@ export function emptyArtists() {
   return { version: 1, rev: 0, updated_at: null, items: [] };
 }
 
-/** 原图路径清洗：filename 去路径分隔符、拒绝 ..；subfolder 去首尾分隔符。不合法 → null */
+/** 原图路径清洗：filename 去路径分隔符、拒绝 ..；subfolder 去首尾分隔符；type 记录 temp/output（旧数据无 type 按 output）。不合法 → null */
 export function cleanOrig(orig) {
   if (!orig || typeof orig !== 'object') return null;
   const fn = String(orig.filename || '').split(/[\\/]+/).pop().trim();
   if (!fn || fn === '.' || fn === '..' || fn.includes('..')) return null;
   const sub = String(orig.subfolder || '').replace(/^[\\/]+|[\\/]+$/g, '');
   if (sub.includes('..')) return null;
-  return { filename: fn, subfolder: sub };
+  return { filename: fn, subfolder: sub, type: orig.type === 'temp' ? 'temp' : 'output' };
 }
 
 export function normalizeArtists(obj) {
@@ -125,9 +125,10 @@ export function viewThumbUrl(im) {
   return `/view?${q}`;
 }
 
-/** 出图原图（保存副本时取这个再压缩） */
+/** 出图原图（保存副本时取这个再压缩）；temp 图按实际类型请求，否则服务器 404 */
 export function viewFullUrl(im) {
-  const q = new URLSearchParams({ filename: im.filename, subfolder: im.subfolder || '', type: 'output' });
+  const type = im.type === 'temp' ? 'temp' : 'output';
+  const q = new URLSearchParams({ filename: im.filename, subfolder: im.subfolder || '', type });
   return `/view?${q}`;
 }
 
@@ -360,7 +361,7 @@ export function openArtistEditor({ host, mode = 'create', item = {}, onSave, onC
               api,
               onPick: (im) => {
                 if (previewUrl) { previewUrl = null; }
-                pick = im ? { filename: im.filename, subfolder: im.subfolder || '' } : null;
+                pick = im ? { filename: im.filename, subfolder: im.subfolder || '', type: im.type } : null;
                 dropImage = false;
                 if (im) previewUrl = viewThumbUrl(im);   // 预览用官方缩略图直链
                 renderPick();
