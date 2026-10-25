@@ -80,6 +80,17 @@ function copyButton(text, label = '复制') {
   return b;
 }
 
+/** 带 label 参数的复制按钮（复制后按钮文字短暂变化） */
+export function copyButtonFor(getText, label) {
+  const b = h('button', { class: 'pp-btn pp-btn-mini pp-copy', text: label });
+  b.addEventListener('click', async () => {
+    const ok = await copyToClipboard(getText());
+    b.textContent = ok ? '已复制 ✓' : '复制失败';
+    setTimeout(() => { b.textContent = label; }, 1200);
+  });
+  return b;
+}
+
 function overlay(host) {
   const wrap = h('div', { class: 'pp-overlay' });
   host.appendChild(wrap);

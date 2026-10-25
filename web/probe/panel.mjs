@@ -22,6 +22,10 @@ import {
   fetchHistoryPage, viewFullUrl, makeThumbBlob, loadImageObjectURL, releaseImage, releaseAllImages,
   openArtistEditor, renderArtistsView
 } from './artists.mjs';
+import {
+  emptyLoras, normalizeLoras, mergeLoras, validateLora,
+  fetchLoraList, openLoraEditor, renderLorasView
+} from './loras.mjs';
 
 const BADGE_CLASS = {
   confirmed: 'pp-badge-ok',
@@ -60,7 +64,11 @@ export function createPanel(app, opts = {}) {
     /* 画师串 */
     artists: emptyArtists(),
     artNotice: null,
-    artLoading: false
+    artLoading: false,
+    /* LoRA 提示词 */
+    loras: emptyLoras(),
+    loraNotice: null,
+    loraLoading: false
   };
 
   let rootEl = null;
@@ -494,6 +502,114 @@ export function createPanel(app, opts = {}) {
     }
   }
 
+  /* ================= LoRA 提示词：读写与界面动作 ================= */
+
+  const LORA_FILE = 'loras.json';
+  const LORA_BACKUP = 'loras.bak.json';
+
+  async function loadLoras() {
+    if (!artFiles) {
+      state.loraNotice = { level: 'error', text: '未取到 ComfyUI API：LoRA 提示词功能不可用。' };
+      render();
+      return;
+    }
+    state.loraLoading = true;
+    render();
+    try {
+      const raw = await artFiles.readText(LORA_FILE);
+      state.loraLoading = false;
+      if (raw == null || !raw.trim()) {
+        state.loras = emptyLoras();
+        state.loraNotice = null;
+      } else {
+        try {
+          state.loras = normalizeLoras(JSON.parse(raw));
+          state.loraNotice = null;
+        } catch (e) {
+          state.loraNotice = { level: 'error', text: `LoRA 提示词文件不是合法 JSON，已停止写入以保护数据：${e.message}` };
+        }
+      }
+    } catch (e) {
+      state.loraLoading = false;
+      state.loraNotice = { level: 'error', text: `读取 LoRA 提示词失败：${errText(e)}` };
+    }
+    render();
+  }
+
+  /** 保存 loras.json（备份 + rev 合并，与画师串/收藏库同规则）。传入最终数据，返回保存后的数据。 */
+  async function saveLoras(next) {
+    if (!artFiles) throw new Error('未取到 ComfyUI API');
+    const diskRaw = await artFiles.readText(LORA_FILE);
+    let diskParsed = null;
+    if (diskRaw && diskRaw.trim()) {
+      try { diskParsed = normalizeLoras(JSON.parse(diskRaw)); } catch (e) { diskParsed = null; }
+      if (!diskParsed) throw new Error('磁盘上的 LoRA 提示词文件不是合法 JSON，为避免覆盖已停止写入');
+    }
+    let merged = normalizeLoras(next);
+    if (diskParsed && diskParsed.rev > merged.rev) merged = mergeLoras(merged, diskParsed);
+    if (diskRaw && diskRaw.trim()) {
+      try { await artFiles.writeText(LORA_BACKUP, diskRaw); } catch (e) { /* 备份失败不阻断 */ }
+    }
+    const withRev = { ...merged, rev: Math.max(merged.rev, diskParsed?.rev || 0) + 1, updated_at: new Date().toISOString() };
+    await artFiles.writeText(LORA_FILE, JSON.stringify(withRev, null, 2));
+    return withRev;
+  }
+
+  function askDeleteLora(item) {
+    confirmDialog({
+      host: rootEl,
+      title: '删除这条 LoRA 提示词？',
+      message: `「${loraBasenameOf(item.lora)}」的提示词将被删除（上一版仍保留在 loras.bak.json）。`,
+      confirmLabel: '确认删除',
+      onConfirm: async () => {
+        try {
+          const next = normalizeLoras({ ...state.loras, items: state.loras.items.filter((x) => x.id !== item.id) });
+          state.loras = await saveLoras(next);
+          state.loraNotice = { level: 'info', text: '已删除' };
+        } catch (e) {
+          state.loraNotice = { level: 'error', text: `删除失败（未写入，数据未变）：${errText(e)}` };
+        }
+        render();
+      }
+    });
+  }
+
+  const loraBasenameOf = (p) => {
+    const s = String(p || '');
+    const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+    return (i >= 0 ? s.slice(i + 1) : s).slice(0, 60);
+  };
+
+  /** 保存（新增/编辑）LoRA 提示词 */
+  async function persistLora({ id, lora, prompt }) {
+    if (!artFiles) return { ok: false, error: '未取到 ComfyUI API，无法保存' };
+    const check = validateLora({ lora, prompt });
+    if (!check.ok) return { ok: false, error: Object.values(check.errors).join('；') };
+    try {
+      const isNew = !id;
+      const itemId = id || globalThis.crypto?.randomUUID?.() || 'l' + Math.random().toString(16).slice(2) + Date.now().toString(16);
+      const now = new Date().toISOString();
+      const next = normalizeLoras({ ...state.loras, items: state.loras.items.slice() });
+      const idx = next.items.findIndex((x) => x.id === itemId);
+      const entry = {
+        id: itemId,
+        lora: String(lora).trim(),
+        prompt: String(prompt),
+        created_at: idx >= 0 ? next.items[idx].created_at : now,
+        updated_at: now
+      };
+      if (idx >= 0) next.items[idx] = entry;
+      else next.items.push(entry);
+
+      state.loras = await saveLoras(next);
+      state.loraNotice = { level: 'info', text: isNew ? '已添加 LoRA 提示词' : '已更新 LoRA 提示词' };
+      render();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: errText(e) };
+    }
+  }
+
   /* ================= 探针：Prompt 卡片 ================= */
 
   /**
@@ -687,10 +803,12 @@ export function createPanel(app, opts = {}) {
     segEl.textContent = '';
     const favCount = (state.library.items || []).length;
     const artCount = (state.artists.items || []).length;
+    const loraCount = (state.loras.items || []).length;
     const items = [
       { id: 'scan', label: '探针' },
       { id: 'library', label: `我的收藏 (${favCount})` },
-      { id: 'artists', label: `画师串 (${artCount})` }
+      { id: 'artists', label: `画师串 (${artCount})` },
+      { id: 'loras', label: `LoRA 提示词 (${loraCount})` }
     ];
     for (const it of items) {
       const b = h('button', { class: `pp-seg-btn ${state.view === it.id ? 'pp-seg-on' : ''}`, text: it.label });
@@ -702,6 +820,10 @@ export function createPanel(app, opts = {}) {
         }
         if (it.id === 'artists') {
           loadArtists();
+          return;
+        }
+        if (it.id === 'loras') {
+          loadLoras();
           return;
         }
         render();
@@ -722,6 +844,13 @@ export function createPanel(app, opts = {}) {
       const holder = h('div', { class: 'pp-lib-toolbar' });
       toolbarEl.appendChild(holder);
       toolbarEl.__artSlot = holder;
+      return;
+    }
+    if (state.view === 'loras') {
+      // LoRA 页工具条由 loras 视图渲染（添加 / 刷新）
+      const holder = h('div', { class: 'pp-lib-toolbar' });
+      toolbarEl.appendChild(holder);
+      toolbarEl.__loraSlot = holder;
       return;
     }
     // 收藏页工具条由 favorites 渲染（搜索 / 筛选 / 刷新 / 导出）
@@ -850,15 +979,35 @@ export function createPanel(app, opts = {}) {
       renderArtists();
       return;
     }
+    if (state.view === 'loras') {
+      tabsEl.style.display = 'none';
+      renderLoras();
+      return;
+    }
     tabsEl.style.display = '';
     renderScan();
+  }
+
+  function renderLoras() {
+    bodyEl.appendChild(renderLorasView({
+      data: state.loras,
+      notice: state.loraLoading ? { level: 'info', text: '正在读取 LoRA 提示词…' } : state.loraNotice,
+      toolbarSlot: toolbarEl.__loraSlot || null,
+      api,
+      handlers: {
+        onAdd: () => openLoraEditor({ host: rootEl, mode: 'create', item: {}, api, onSave: persistLora }),
+        onEdit: (item) => openLoraEditor({ host: rootEl, mode: 'edit', item, api, onSave: persistLora }),
+        onDelete: (item) => askDeleteLora(item),
+        onReload: () => loadLoras()
+      }
+    }));
   }
 
   function mount(el) {
     rootEl = h('div', { class: 'pp-root' });
     rootEl.appendChild(h('div', { class: 'pp-head' }, [
       h('span', { class: 'pp-title', text: 'Prompt Library' }),
-      h('span', { class: 'pp-ver', text: 'v0.3 · 探针 / 收藏 / 画师串' })
+      h('span', { class: 'pp-ver', text: 'v0.4 · 探针 / 收藏 / 画师串 / LoRA' })
     ]));
     segEl = h('div', { class: 'pp-seg' });
     toolbarEl = h('div', { class: 'pp-toolbar' });
@@ -878,6 +1027,7 @@ export function createPanel(app, opts = {}) {
     rescan();
     loadLibrary();
     loadArtists();
+    loadLoras();
   }
 
   function destroy() {
@@ -901,6 +1051,8 @@ export function createPanel(app, opts = {}) {
     persistItem,
     loadArtists,
     persistArtist,
+    loadLoras,
+    persistLora,
     setView: (v) => { state.view = v; render(); },
     /** 排版体检（只读测量，验收用） */
     auditLayout: () => auditLayout(rootEl)

@@ -5,6 +5,7 @@
 - **探针（只读扫描）** —— 检查工作流里的 Prompt 到底能不能被正确读出来，以及它实际来自哪些节点。
 - **我的收藏** —— 收藏、搜索、筛选、查看、编辑、复制、删除。
 - **画师串** —— 手动画师串即条目，可选一张出图历史做参考图，点缩略图灯箱放大。
+- **LoRA 提示词** —— 为某个 LoRA 记一段提示词，列表直接显示，一键复制；点「添加」时才从 LoRA 列表里挑。
 
 无 Python 依赖、无 npm 依赖、不注册后端节点、不新增 HTTP 路由、不调用任何 AI API、不联网。
 
@@ -66,13 +67,13 @@ git clone https://github.com/xmmd07/ComfyUI-Prompt-Library.git
 打开开发者工具（F12 → Console），应能看到：
 
 ```
-[Prompt Probe] 已注册侧边栏标签「Prompt Library」v0.3.0（提示词探针只读 + 本地收藏）
+[Prompt Probe] 已注册侧边栏标签「Prompt Library」v0.4.0（提示词探针只读 + 本地收藏）
 ```
 
 并可在 Console 里执行只读调试命令：
 
 ```js
-window.__promptProbe.version                                      // "0.3.0"
+window.__promptProbe.version                                      // "0.4.0"
 window.__promptProbe.scanLive()                                   // 扫描当前画布并返回结构化结果
 await window.__promptProbe.scanWorkflowFile("my-workflow.json")   // 只读解析某个工作流文件（不打开它）
 window.__promptProbe.library.state().library                      // 当前收藏库（内存中）
@@ -95,8 +96,8 @@ curl -s http://127.0.0.1:8188/extensions | grep -i prompt-library
 顶部布局如下，两个视图共用同一套按钮高度、圆角、间距与徽标配色：
 
 ```
-┌ Prompt Library   v0.3 · 探针 / 收藏 / 画师串   ← 第 1 行：品牌 + 版本
-├ [ 探针 ] [ 我的收藏 (N) ] [ 画师串 (N) ]      ← 第 2 行：视图切换
+┌ Prompt Library   v0.4 · 探针 / 收藏 / 画师串 / LoRA   ← 第 1 行：品牌 + 版本
+├ [ 探针 ] [ 我的收藏 (N) ] [ 画师串 (N) ] [ LoRA 提示词 (N) ]   ← 第 2 行：视图切换
 ├ 探针页：  [重新扫描] [★ 收藏 Prompt]        ← 第 3 行：只放当前视图的操作
 │ 收藏页：  [按标题搜索…]                     ←   （搜索框独占一行）
 │           [全部模型 ▾] [刷新] [导出]
@@ -192,6 +193,18 @@ curl -s http://127.0.0.1:8188/extensions | grep -i prompt-library
 - 数据文件：`prompt_library\artists.json`（+`artists.bak.json` 备份，与收藏库同一套安全写入：
   原子替换、损坏拒写、多标签页 rev 合并）。
 
+## 4.4 LoRA 提示词（v0.4）
+
+顶部第四个页签「LoRA 提示词 (N)」。给某个 LoRA 记一段"它适合配什么提示词"，保存后列表直接显示 LoRA 名和提示词。
+
+- **平时不列出全部 LoRA**：列表只显示你保存过的记录；点「＋ 添加 LoRA 提示词」才弹出选择层，
+  从 `/models/loras` 拉 LoRA 列表，顶部有**过滤框**（按包含匹配），点一条即选中。
+- **保存**：选 LoRA + 写提示词，两者都必填。LoRA 名在列表里显示文件名（子目录显示在旁边），悬停看完整路径。
+- **一键复制**：每条两个按钮——「复制提示词」（主用途）和「复制 LoRA 名」（复制的是原始相对路径，
+  含子目录，可直接粘进 LoRA 加载器）。
+- **编辑 / 删除**：编辑可改提示词或「换 LoRA…」；删除二次确认。
+- 数据文件：`prompt_library\loras.json`（+`loras.bak.json` 备份，同一套安全写入）。
+
 ---
 
 ## 收藏数据存在哪、怎么保证不丢
@@ -240,11 +253,13 @@ ComfyUI-Prompt-Library/
 │   │   ├── favorites.mjs        # 收藏弹窗 / 二次确认弹窗 / 收藏列表渲染
 │   │   ├── layout-audit.mjs     # 排版体检：重叠 / 横向溢出 / 撑破父容器 / 被裁切（v0.2，只读测量）
 │   │   ├── artists.mjs          # 画师串：数据模型（含 orig 原图路径）+ 弹窗 + 选图 + 1024px 副本 + 灯箱（原图优先/副本回退）
+│   ├── loras.mjs            # LoRA 提示词：数据模型 + /models/loras 选择弹层（过滤）+ 列表（一键复制）
 │   │   └── panel.mjs            # 侧边栏面板：顶部三行布局、扫描卡片、收藏列表、画师串页（阶段一+二+v0.2/v0.3）
 │   └── tools/
 │       ├── selftest.mjs         # 自测①：解析核心（真实工作流，只读）
 │       ├── selftest_library.mjs # 自测②：收藏库逻辑 + 面板交互 + UI 结构（minidom + 假 api，不碰真实数据）
 │       ├── selftest_artists.mjs # 自测④：画师串（内存假 api + canvas 垫片，不碰真实数据）
+│       ├── selftest_loras.mjs   # 自测⑤：LoRA 提示词（内存假 api，不碰真实数据）
 │       ├── selftest_storage.mjs # 自测③：持久化（打真实 /userdata，只用临时目录并自动清理）
 │       └── minidom.mjs          # 极简 DOM 垫片（仅供内存自测使用）
 └── devtools/                    # 可选：本地验证台（不参与 ComfyUI 运行，可直接删除）
@@ -269,6 +284,7 @@ node web/tools/selftest.mjs           # ① 解析核心：真实工作流只读
 node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（100 项断言）
 node web/tools/selftest_storage.mjs   # ③ 持久化：打真实 /userdata，只写临时目录并在结束前清理（23 项断言）
 node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（63 项断言）
+node web/tools/selftest_loras.mjs     # ⑤ LoRA 提示词：内存假 api，不碰真实数据（49 项断言）
 ```
 
 附加参数：

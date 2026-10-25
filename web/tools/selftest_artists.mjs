@@ -229,7 +229,7 @@ async function main() {
     await tick(20);   // 等 loadLibrary/loadArtists 两次 render
 
     const segLabels = () => [...hostEl.querySelectorAll('.pp-seg-btn')].map((b) => b.textContent);
-    check('页签变成三个（含 画师串 (0)）', segLabels().length === 3 && /画师串 \(0\)/.test(segLabels()[2]), segLabels().join(','));
+    check('页签变成四个（含 画师串 (0) 与 LoRA 提示词 (0)）', segLabels().length === 4 && /画师串 \(0\)/.test(segLabels()[2]) && /LoRA 提示词 \(0\)/.test(segLabels()[3]), segLabels().join(','));
 
     const artTab = [...hostEl.querySelectorAll('.pp-seg-btn')].find((b) => /画师串/.test(b.textContent));
     artTab.click();

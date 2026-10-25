@@ -618,6 +618,55 @@ select.pp-input {
   overflow: hidden;
 }
 
+/* ---------------- LoRA 提示词页（v0.4） ---------------- */
+
+.pp-lora-prompt {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--pp-font-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--pp-bg);
+  border: 1px solid var(--pp-border-soft);
+  border-radius: var(--pp-radius-sm);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.pp-lora-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 55vh;
+  overflow: auto;
+  margin: 6px 0;
+}
+
+.pp-lora-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  justify-content: flex-start;
+  text-align: left;
+  min-width: 0;
+}
+
+.pp-lora-item .pp-lora-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.pp-lora-item .pp-len {
+  flex-shrink: 0;
+}
+
 .pp-lib-meta {
   display: flex;
   flex-wrap: wrap;
