@@ -79,19 +79,20 @@ export function loraBasename(p) {
   return i >= 0 ? s.slice(i + 1) : s;
 }
 
-/* ===================== /models/loras 拉取 ===================== */
+/* ===================== /models 列表拉取 ===================== */
 
 /**
- * 读取 LoRA 列表。实测（aki 整合包 ComfyUI 0.42.3，folder_paths.get_filename_list('loras')）：
- * 返回**字符串数组**，子目录用反斜杠拼接（如 "Flux2\\xxx.safetensors"）。
+ * 读取 /models/{folder} 列表。实测：
+ *   · loras（aki 整合包 ComfyUI 0.42.3）：字符串数组，子目录用反斜杠拼接；
+ *   · diffusion_models：纯字符串数组（unet 与 diffusion_models 两个目录已合并返回）。
  * 容错：对象数组（{name} 形态，其他版本可能）也接受。
  * @returns {Promise<string[]>} 原始相对路径数组（不做归一化）
  */
-export async function fetchLoraList(api) {
-  const res = await api.fetchApi('/models/loras', { cache: 'no-store' });
-  if (!res.ok) throw new Error(`读取 LoRA 列表失败：HTTP ${res.status}`);
+export async function fetchModelList(api, folder) {
+  const res = await api.fetchApi(`/models/${encodeURIComponent(folder)}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`读取模型列表失败：HTTP ${res.status}`);
   const j = await res.json();
-  if (!Array.isArray(j)) throw new Error('LoRA 列表格式异常（非数组）');
+  if (!Array.isArray(j)) throw new Error('模型列表格式异常（非数组）');
   const out = [];
   for (const it of j) {
     if (typeof it === 'string' && it.trim()) out.push(it);
@@ -100,20 +101,27 @@ export async function fetchLoraList(api) {
   return out;
 }
 
+/** LoRA 列表 = /models/loras */
+export const fetchLoraList = (api) => fetchModelList(api, 'loras');
+
 /* ===================== 界面：LoRA 选择弹层（带过滤框） ===================== */
 
 /**
  * 弹出 LoRA 选择列表：顶部过滤框（按包含匹配），点击一条即选中并关闭。
  * @param {object} o {host, api, onPick(loraPath), onCancel?}
  */
-export function openLoraPicker({ host, api, onPick, onCancel }) {
+/**
+ * 模型选择弹层（LoRA / diffusion_models 通用，带过滤框，点击一条即选中并关闭）。
+ * @param {object} o {host, api, folder, onPick(path), onCancel?, title?}
+ */
+export function openModelPicker({ host, api, folder = 'loras', onPick, onCancel, title = '选择 LoRA' }) {
   const ov = h('div', { class: 'pp-overlay' });
   host.appendChild(ov);
   const close = () => { ov.remove(); };
   const cancelBtn = h('button', { class: 'pp-btn', text: '取消', onclick: () => { close(); onCancel?.(); } });
 
   const listWrap = h('div', { class: 'pp-lora-list' });
-  const status = h('div', { class: 'pp-hint', text: '正在读取 LoRA 列表…' });
+  const status = h('div', { class: 'pp-hint', text: '正在读取列表…' });
   const filterInput = h('input', { class: 'pp-input', placeholder: '输入关键字过滤…' });
 
   let all = [];
@@ -122,7 +130,7 @@ export function openLoraPicker({ host, api, onPick, onCancel }) {
     listWrap.textContent = '';
     const shown = kw ? all.filter((p) => p.toLowerCase().includes(kw)) : all;
     if (!shown.length) {
-      listWrap.appendChild(h('div', { class: 'pp-empty', text: kw ? '没有匹配的 LoRA' : '（没有 LoRA）' }));
+      listWrap.appendChild(h('div', { class: 'pp-empty', text: kw ? '没有匹配的模型' : '（列表为空）' }));
       return;
     }
     for (const p of shown) {
@@ -137,7 +145,7 @@ export function openLoraPicker({ host, api, onPick, onCancel }) {
   filterInput.addEventListener('input', renderList);
 
   const dlg = h('div', { class: 'pp-dlg' }, [
-    h('div', { class: 'pp-dlg-h', text: '选择 LoRA' }),
+    h('div', { class: 'pp-dlg-h', text: title }),
     status,
     h('div', { class: 'pp-row', style: 'margin:6px 0' }, [filterInput]),
     listWrap,
@@ -147,13 +155,18 @@ export function openLoraPicker({ host, api, onPick, onCancel }) {
 
   (async () => {
     try {
-      all = await fetchLoraList(api);
-      status.textContent = `共 ${all.length} 个 LoRA`;
+      all = await fetchModelList(api, folder);
+      status.textContent = `共 ${all.length} 个`;
       renderList();
     } catch (e) {
       status.textContent = String(e.message || e);
     }
   })();
+}
+
+/** LoRA 选择弹层 = openModelPicker('loras') */
+export function openLoraPicker({ host, api, onPick, onCancel }) {
+  return openModelPicker({ host, api, folder: 'loras', onPick, onCancel, title: '选择 LoRA' });
 }
 
 function loraDirname(p) {

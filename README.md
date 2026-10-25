@@ -68,13 +68,13 @@ git clone https://github.com/xmmd07/ComfyUI-Prompt-Library.git
 打开开发者工具（F12 → Console），应能看到：
 
 ```
-[Prompt Probe] 已注册侧边栏标签「Prompt Library」v0.4.0（提示词探针只读 + 本地收藏）
+[Prompt Probe] 已注册侧边栏标签「Prompt Library」v0.4.3（提示词探针只读 + 本地收藏）
 ```
 
 并可在 Console 里执行只读调试命令：
 
 ```js
-window.__promptProbe.version                                      // "0.4.0"
+window.__promptProbe.version                                      // "0.4.3"
 window.__promptProbe.scanLive()                                   // 扫描当前画布并返回结构化结果
 await window.__promptProbe.scanWorkflowFile("my-workflow.json")   // 只读解析某个工作流文件（不打开它）
 window.__promptProbe.library.state().library                      // 当前收藏库（内存中）
@@ -97,7 +97,7 @@ curl -s http://127.0.0.1:8188/extensions | grep -i prompt-library
 顶部布局如下，两个视图共用同一套按钮高度、圆角、间距与徽标配色：
 
 ```
-┌ Prompt Library   v0.4 · 探针 / 收藏 / 画师串 / LoRA   ← 第 1 行：品牌 + 版本
+┌ Prompt Library   v0.4.3 · 探针 / 收藏 / 画师串 / LoRA   ← 第 1 行：品牌 + 版本
 ├ [ 探针 ] [ 我的收藏 (N) ] [ 画师串 (N) ] [ LoRA 提示词 (N) ]   ← 第 2 行：视图切换
 ├ 探针页：  [重新扫描] [★ 收藏 Prompt]        ← 第 3 行：只放当前视图的操作
 │ 收藏页：  [按标题搜索…]                     ←   （搜索框独占一行）
@@ -189,7 +189,10 @@ curl -s http://127.0.0.1:8188/extensions | grep -i prompt-library
 - **灯箱**：优先显示 output 里的原图；原图被删或移动过时自动改显压缩副本，并在下方提示「原图已不在
   output，显示压缩副本」。**只有新存或重新选过图的条目**才能看原图——更早的旧条目没有原图位置记录，
   灯箱只会显示压缩副本。
-- **编辑**：改串、换图（「换一张…」）或移除图片；不动图时原图保留。
+- **主模型（v0.4.3 新增，可选）**：从 `diffusion_models`（unet 与 diffusion_models 合并列表）里选一个
+  主模型，记「这段串配哪个模型出图」；选择弹层带过滤框，可清除；列表元信息行显示模型名（悬停看全名），
+  未选显示「未指定模型」。**模型名不校验存在性**：之后你删了/改名该模型，列表仍显示旧名，不报错。
+- **编辑**：改串、换图（「换一张…」）或移除图片；不动图时原图与模型保留。
 - **删除**：二次确认；数据行和图片副本一起删除。
 - 数据文件：`prompt_library\artists.json`（+`artists.bak.json` 备份，与收藏库同一套安全写入：
   原子替换、损坏拒写、多标签页 rev 合并）。
@@ -286,7 +289,7 @@ ComfyUI-Prompt-Library/
 node web/tools/selftest.mjs           # ① 解析核心：真实工作流只读解析（36 项断言）
 node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（122 项断言）
 node web/tools/selftest_storage.mjs   # ③ 持久化：打真实 /userdata，只写临时目录并在结束前清理（23 项断言）
-node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（63 项断言）
+node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（82 项断言）
 node web/tools/selftest_loras.mjs     # ⑤ LoRA 提示词：内存假 api，不碰真实数据（49 项断言）
 ```
 

@@ -234,6 +234,15 @@
 
 /* ---------------- 拼接分段区（探针分段展示 + 每段独立复制） ---------------- */
 
+.pp-art-model-shown {
+  font-weight: 400;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .pp-parts {
   margin-top: 6px;
 }

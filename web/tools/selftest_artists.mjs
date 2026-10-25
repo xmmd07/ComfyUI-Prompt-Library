@@ -54,6 +54,22 @@ function makeFakeApi() {
     async fetchApi(url, opts = {}) {
       const method = (opts.method || 'GET').toUpperCase();
 
+      // /models/{folder}（画师串选模型用 diffusion_models；实测纯字符串数组）
+      const mm = /^\/models\/(.+)$/.exec(url);
+      if (mm) {
+        const folder = decodeURIComponent(mm[1]);
+        const lists = {
+          diffusion_models: [
+            'Krea2_Turbo_convrot_int8mixed.safetensors', 'anima-base-v1.0.safetensors',
+            'anima-furry-v1.0.safetensors', 'flux3_image_klein_sd_int8_convrot.safetensors',
+            'miaomiaoHarem_29BBETA11_fp16.safetensors', 'moss_image_sft_int8_convrot.safetensors',
+            'qwen_image_2.1_int8_convrot.safetensors', 'seedvr2_7b_int8_convrot.safetensors'
+          ],
+          loras: []
+        };
+        return { ok: true, status: 200, async json() { return (lists[folder] || []).slice(); } };
+      }
+
       // /history
       if (url.startsWith('/history')) {
         const q = new URLSearchParams(url.split('?')[1] || '');
@@ -257,10 +273,83 @@ async function main() {
     btnIn(dlg, '保存').click();
     await tick(10);
     check('保存成功：列表出现串（串就是标题）', hostEl.textContent.includes('artist:misaki'));
+    check('列表元信息行显示「未指定模型」（model 为空）', /未指定模型/.test(hostEl.textContent));
     check('artists.json 已落盘', api.files.has('prompt_library/artists.json'));
     const saved1 = JSON.parse(api.files.get('prompt_library/artists.json'));
     check('落盘结构：version/rev/items', saved1.version === 1 && saved1.rev >= 1 && saved1.items.length === 1, `rev=${saved1.rev} n=${saved1.items.length}`);
-    check('无名称字段（只有 text/thumb/时间）', !('title' in saved1.items[0]) && !('name' in saved1.items[0]) && !('model' in saved1.items[0]));
+    check('无名称字段（只有 text/thumb/orig/model/时间）', !('title' in saved1.items[0]) && !('name' in saved1.items[0]) && 'model' in saved1.items[0]);
+    check('model 为空时落盘为 null', saved1.items[0].model === null, JSON.stringify(saved1.items[0].model));
+
+    /* 模型选择（v0.4.3）：diffusion_models 选择器 + 过滤 + 原样落盘 */
+    api.loras = null;   // 标记：本自测假 api 的 /models/{folder} 支持见 makeFakeApi
+    clickBtn(hostEl, '＋ 添加画师串');
+    await tick(4);
+    dlg = topDlg();
+    check('编辑弹窗有「选择模型…」按钮', !!btnIn(dlg, '选择模型…'));
+    check('弹窗初始显示「未指定模型」', /未指定模型/.test(dlg.textContent));
+    btnIn(dlg, '选择模型…').click();
+    await tick(8);
+    const modelDlg = topDlg();
+    check('模型选择弹层打开并显示计数（8 个 diffusion_models）', !!modelDlg && /共 8 个/.test(modelDlg.textContent), modelDlg?.textContent?.slice(0, 60));
+    check('弹层标题指明 diffusion_models', /diffusion_models/.test(modelDlg.textContent));
+    const mFilter = modelDlg.querySelector('input');
+    mFilter.value = 'anima';
+    mFilter.dispatch('input');
+    await tick(2);
+    const mItems = [...modelDlg.querySelectorAll('.pp-lora-item')];
+    check('模型过滤框生效（anima → 2 条）', mItems.length === 2, `n=${mItems.length}`);
+    [...mItems][0].dispatch('click');
+    await tick(4);
+    dlg = topDlg();
+    check('选中后回填模型名（basename）', /anima-base-v1\.0\.safetensors/.test(dlg.textContent));
+    check('按钮变「换模型…」且有「清除」', !!btnIn(dlg, '换模型…') && !!btnIn(dlg, '清除'));
+    dlg.querySelector('textarea').value = 'artist:model-bound-test';
+    btnIn(dlg, '保存').click();
+    await tick(14);
+    const savedModel = JSON.parse(api.files.get('prompt_library/artists.json')).items.find((x) => x.text === 'artist:model-bound-test');
+    check('model 原样落盘（不归一化）', savedModel?.model === 'anima-base-v1.0.safetensors', JSON.stringify(savedModel?.model));
+    check('列表元信息行显示模型名', /模型 anima-base-v1\.0\.safetensors/.test(hostEl.textContent));
+
+    /* 编辑保留 model（keepModel 路径）：改文案不动模型 */
+    const cardModel = [...hostEl.querySelectorAll('.pp-lib-item')].find((c) => c.textContent.includes('model-bound-test'));
+    btnIn(cardModel, '编辑').click();
+    await tick(8);
+    dlg = topDlg();
+    check('编辑弹窗回填已有模型', /anima-base-v1\.0\.safetensors/.test(dlg.textContent) && !!btnIn(dlg, '换模型…'));
+    dlg.querySelector('textarea').value = 'artist:model-bound-test v2';
+    btnIn(dlg, '保存修改').click();
+    await tick(14);
+    const savedModel2 = JSON.parse(api.files.get('prompt_library/artists.json')).items.find((x) => x.text === 'artist:model-bound-test v2');
+    check('编辑改文案后 model 保留', savedModel2?.model === 'anima-base-v1.0.safetensors', JSON.stringify(savedModel2?.model));
+
+    /* 清除模型 → 保存后 model 回 null */
+    btnIn([...hostEl.querySelectorAll('.pp-lib-item')].find((c) => c.textContent.includes('model-bound-test v2')), '编辑').click();
+    await tick(8);
+    dlg = topDlg();
+    btnIn(dlg, '清除').click();
+    await tick(2);
+    check('清除后显示「未指定模型」', /未指定模型/.test(dlg.textContent));
+    btnIn(dlg, '保存修改').click();
+    await tick(14);
+    const savedModel3 = JSON.parse(api.files.get('prompt_library/artists.json')).items.find((x) => x.text === 'artist:model-bound-test v2');
+    check('清除模型保存后 model 为 null', savedModel3?.model === null, JSON.stringify(savedModel3?.model));
+    check('model 为 null 的条目可正常编辑保存（列表正常）', hostEl.textContent.includes('model-bound-test v2'));
+
+    /* 历史条目兼容：无 model 字段的旧数据归一化为 null，不崩、不空列表 */
+    const legacyRaw = { version: 1, rev: 99, items: [{ id: 'legacy-1', text: 'artist:legacy-entry', created_at: '2026-10-01T00:00:00Z' }] };
+    api.files.set('prompt_library/artists.json', JSON.stringify(legacyRaw));
+    panel.loadArtists();
+    await tick(10);
+    const legacyItem = panel.state.artists.items.find((x) => x.id === 'legacy-1');
+    check('历史条目（无 model 字段）载入不崩且 model 归一化为 null', !!legacyItem && legacyItem.model === null,
+      JSON.stringify(legacyItem ? { model: legacyItem.model } : 'missing'));
+    check('历史条目在列表中正常显示「未指定模型」', hostEl.textContent.includes('artist:legacy-entry') && /未指定模型/.test(hostEl.textContent));
+    check('模型列表拉取容错：对象数组形态', await (async () => {
+      const { fetchModelList } = await import('../probe/loras.mjs');
+      const objApi = { async fetchApi() { return { ok: true, status: 200, async json() { return [{ name: 'a.safetensors' }, 'b.safetensors', null]; } }; } };
+      const list = await fetchModelList(objApi, 'diffusion_models');
+      return list.length === 2 && list[0] === 'a.safetensors';
+    })());
 
     /* 添加第二条：带选图 */
     api.history.push({ prompt_id: 'p9', images: [{ filename: 'ref.png', type: 'output' }] });

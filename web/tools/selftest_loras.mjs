@@ -173,7 +173,7 @@ async function main() {
     btnIn(dlg, '选择 LoRA…').click();
     await tick(8);
     const pickerDlg = topDlg();
-    check('选择弹层出现并显示计数', !!pickerDlg && /共 5 个 LoRA/.test(pickerDlg.textContent), pickerDlg?.textContent?.slice(0, 60));
+    check('选择弹层出现并显示计数', !!pickerDlg && /共 5 个/.test(pickerDlg.textContent), pickerDlg?.textContent?.slice(0, 60));
     check('弹层显示 basename（不带子目录）', /lora_character_b\.safetensors/.test(pickerDlg.textContent) && !/Flux2\\/.test(pickerDlg.textContent));
     const filterInput = pickerDlg.querySelector('input');
     filterInput.value = 'anima';
@@ -184,7 +184,7 @@ async function main() {
     filterInput.value = '不存在关键字xyz';
     filterInput.dispatch('input');
     await tick(2);
-    check('无匹配显示提示', /没有匹配的 LoRA/.test(pickerDlg.textContent));
+    check('无匹配显示提示', /没有匹配的模型/.test(pickerDlg.textContent));
     filterInput.value = 'lora_character_b';
     filterInput.dispatch('input');
     await tick(2);

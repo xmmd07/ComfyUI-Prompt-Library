@@ -446,7 +446,7 @@ export function createPanel(app, opts = {}) {
   }
 
   /** 保存（新增/编辑）：处理选图 → 压缩 1024px 副本 → 写 artists.json；串就是标题，没有名称字段 */
-  async function persistArtist({ id, text, keepThumb, newPick }) {
+  async function persistArtist({ id, text, model, keepThumb, newPick }) {
     if (!artFiles) return { ok: false, error: '未取到 ComfyUI API，无法保存' };
     const check = validateArtist({ text });
     if (!check.ok) return { ok: false, error: Object.values(check.errors).join('；') };
@@ -487,6 +487,8 @@ export function createPanel(app, opts = {}) {
         text: String(text),
         thumb,
         orig,
+        // model：弹窗里选择了就存；清除（null）时也保存 null —— 不能回退旧值，否则"清除"无效
+        model: typeof model === 'string' && model.trim() ? model : null,
         created_at: idx >= 0 ? next.items[idx].created_at : now,
         updated_at: now
       };
@@ -1084,7 +1086,7 @@ export function createPanel(app, opts = {}) {
     rootEl = h('div', { class: 'pp-root' });
     rootEl.appendChild(h('div', { class: 'pp-head' }, [
       h('span', { class: 'pp-title', text: 'Prompt Library' }),
-      h('span', { class: 'pp-ver', text: 'v0.4.1 · 探针 / 收藏 / 画师串 / LoRA' })
+      h('span', { class: 'pp-ver', text: 'v0.4.3 · 探针 / 收藏 / 画师串 / LoRA' })
     ]));
     segEl = h('div', { class: 'pp-seg' });
     toolbarEl = h('div', { class: 'pp-toolbar' });

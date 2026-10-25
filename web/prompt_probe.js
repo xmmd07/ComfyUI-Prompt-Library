@@ -14,7 +14,7 @@ import { createLiveView, createJsonView } from './probe/graphview.mjs';
 import { scan } from './probe/resolver.mjs';
 
 const NAME = 'ComfyUI-Prompt-Library · Prompt Probe';
-const VERSION = '0.4.2';
+const VERSION = '0.4.3';
 const log = (...a) => console.log('[Prompt Probe]', ...a);
 const warn = (...a) => console.warn('[Prompt Probe]', ...a);
 

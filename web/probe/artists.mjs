@@ -1,8 +1,10 @@
 /**
  * artists.mjs —— 画师串（artist string）收藏：数据模型 + 界面（原生 DOM，无框架）
  *
- * 按需求刻意保持极简：
- *   · 条目 = 画师串本身（没有名称/备注/模型字段——串就是标题）；
+ * 设计（v0.4.3 起含模型）：
+ *   · 条目 = 画师串本身（没有名称/备注字段——串就是标题）；
+ *   · 可选一个主模型（diffusion_models，v0.4.3 新增）：同一段画师串配不同微调模型出图有差异，
+ *     用途是记「这段串配哪个模型」；可空（历史数据无此字段，归一化为 null）；
  *   · 可选一张参考图：从「出图历史」网格里点选，保存为约 1024px 的 webp 副本，
  *     存进 user\default\prompt_library\artists\（output 清理后仍在）；
  *   · 不做搜索/筛选/导入导出（v1）。
@@ -15,6 +17,7 @@
 
 import { h, confirmDialog, copyToClipboard } from './favorites.mjs';
 import { newId } from './library.mjs';
+import { openModelPicker, loraBasename as basenameOf } from './loras.mjs';
 
 /* ===================== 数据模型 ===================== */
 
@@ -49,6 +52,7 @@ export function normalizeArtists(obj) {
       text,
       thumb: typeof it.thumb === 'string' && it.thumb ? it.thumb : null,
       orig: cleanOrig(it.orig),
+      model: typeof it.model === 'string' && it.model.trim() ? it.model : null,
       created_at: it.created_at || new Date().toISOString(),
       updated_at: it.updated_at || it.created_at || new Date().toISOString()
     });
@@ -292,7 +296,40 @@ export function openArtistEditor({ host, mode = 'create', item = {}, onSave, onC
   const pickThumbWrap = h('div', { class: 'pp-art-thumbwrap' }, [pickThumbImg]);
   pickThumbWrap.style.display = 'none';
 
+  /* —— 模型选择区（v0.4.3：diffusion_models，可空） —— */
+  let model = typeof item.model === 'string' ? item.model : null;
+  const modelShown = h('span', {
+    class: 'pp-lib-title pp-art-model-shown',
+    text: model ? basenameOf(model) : '未指定模型',
+    title: model || '未指定模型（可点「选择模型」从主模型列表里挑）'
+  });
+  const refreshModelRow = () => {
+    modelShown.textContent = model ? basenameOf(model) : '未指定模型';
+    modelShown.title = model || '未指定模型';
+    modelPickBtn.textContent = model ? '换模型…' : '选择模型…';
+    clearBtnWrap.textContent = '';
+    if (model) clearBtnWrap.appendChild(modelClearBtn);
+  };
+  const modelPickBtn = h('button', {
+    class: 'pp-btn pp-btn-mini',
+    text: '选择模型…',
+    onclick: () => {
+      if (!api) return;
+      openModelPicker({
+        host: ov, api, folder: 'diffusion_models', title: '选择主模型（diffusion_models）',
+        onPick: (p) => { model = p; refreshModelRow(); }
+      });
+    }
+  });
+  const modelClearBtn = h('button', {
+    class: 'pp-btn pp-btn-mini',
+    text: '清除',
+    onclick: () => { model = null; refreshModelRow(); }
+  });
+  const clearBtnWrap = h('span');
+
   let previewUrl = null;           // objectURL（编辑已有图时）
+  refreshModelRow();
   const renderPick = () => {
     imgBox.textContent = '';
     if (previewUrl) {
@@ -355,7 +392,7 @@ export function openArtistEditor({ host, mode = 'create', item = {}, onSave, onC
     saveBtn.disabled = true;
     saveBtn.textContent = '保存中…';
     try {
-      const r = await onSave({ id: item.id, text, keepThumb: isEdit && !pick && !dropImage, newPick: pick });
+      const r = await onSave({ id: item.id, text, model, keepThumb: isEdit && !pick && !dropImage, newPick: pick });
       if (r && r.ok === false) {
         errEl.appendChild(h('div', { class: 'pp-warn', text: `保存失败：${r.error || '未知错误'}` }));
         saveBtn.disabled = false;
@@ -376,6 +413,10 @@ export function openArtistEditor({ host, mode = 'create', item = {}, onSave, onC
     h('div', { class: 'pp-dlg-field' }, [
       h('div', { class: 'pp-row pp-row-between' }, [h('label', { class: 'pp-label', text: '画师串（必填，保存后即标题）' }), lenEl]),
       textArea
+    ]),
+    h('div', { class: 'pp-dlg-field' }, [
+      h('div', { class: 'pp-row pp-row-between' }, [h('label', { class: 'pp-label', text: '主模型（可选：这段串配哪个模型出图）' })]),
+      h('div', { class: 'pp-row' }, [modelShown, h('span', { style: 'flex:1' }), modelPickBtn, modelClearBtn])
     ]),
     h('div', { class: 'pp-dlg-field' }, [h('label', { class: 'pp-label', text: '参考图（可选）' }), imgBox]),
     errEl,
@@ -499,6 +540,11 @@ export function renderArtistsView(o) {
           h('div', { class: 'pp-lib-title pp-clamp', text: it.text }),
           h('div', { class: 'pp-lib-meta' }, [
             h('span', { class: 'pp-len', text: `${String(it.text || '').length} 字` }),
+            h('span', {
+              class: 'pp-len',
+              text: it.model ? `模型 ${basenameOf(it.model)}` : '未指定模型',
+              title: it.model || '未指定模型'
+            }),
             h('span', { class: 'pp-len', text: it.thumb ? '有参考图' : '无参考图' }),
             h('span', { class: 'pp-len', text: `收藏于 ${(it.created_at || '').slice(0, 10)}` })
           ])
