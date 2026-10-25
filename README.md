@@ -3,7 +3,7 @@
 一个**纯前端**的 ComfyUI 侧边栏插件：只读扫描当前工作流里的 Prompt，把满意的 Prompt 收藏成可搜索的本地库，并维护带参考图的画师串列表。
 
 - **探针（只读扫描）** —— 检查工作流里的 Prompt 到底能不能被正确读出来，以及它实际来自哪些节点；
-  拼接来源（StringConcatenate 系 / JoinStringMulti / CR Combine Prompt）支持**分段展示**，每段可单独复制。
+  拼接来源（StringConcatenate 系 / JoinStringMulti / CR Combine Prompt）支持**分段展示**，每段可单独复制、单独收藏（收藏弹窗预填该段全文，来源带分段标记）。
 - **我的收藏** —— 收藏、搜索、筛选、查看、编辑、复制、删除。
 - **画师串** —— 手动画师串即条目，可选一张出图历史做参考图，点缩略图灯箱放大。
 - **LoRA 提示词** —— 为某个 LoRA 记一段提示词，列表直接显示，一键复制；点「添加」时才从 LoRA 列表里挑。
@@ -284,7 +284,7 @@ ComfyUI-Prompt-Library/
 
 ```bash
 node web/tools/selftest.mjs           # ① 解析核心：真实工作流只读解析（36 项断言）
-node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（109 项断言）
+node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（122 项断言）
 node web/tools/selftest_storage.mjs   # ③ 持久化：打真实 /userdata，只写临时目录并在结束前清理（23 项断言）
 node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（63 项断言）
 node web/tools/selftest_loras.mjs     # ⑤ LoRA 提示词：内存假 api，不碰真实数据（49 项断言）

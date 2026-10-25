@@ -220,6 +220,48 @@ async function main() {
     check('复制本段写入剪贴板的是该段全文（不是合并文本）', dom.copied.length === copiedBeforeSeg + 1
       && dom.copied.at(-1) === 'best quality, highres');
     segHost.remove();
+
+    /* 分段收藏（v0.4.2）：每段 ★ 收藏本段，走同一条收藏管道，source 带分段标记。
+       用独立假 api + 独立面板：不污染下面收藏主流程的计数断言（同一个库会顶掉条目数） */
+    const segApi = makeFakeApi();
+    const segPanel2 = createPanel(segGraph, { api: segApi, workflowName: () => '分段自测.json' });
+    const segHost2 = dom.document.createElement('div');
+    dom.document.body.appendChild(segHost2);
+    segPanel2.mount(segHost2);
+    await tick(4);
+    [...segHost2.querySelectorAll('.pp-tab')].find((t) => t.textContent.startsWith('链1'))?.click();
+    await tick(4);
+    const partsEl3 = [...segHost2.querySelectorAll('.pp-parts')][0];
+    partsEl3.querySelector('summary').dispatch('click');
+    await tick(2);
+    const partsEl4 = [...segHost2.querySelectorAll('.pp-parts')][0];
+    const favBtns = [...partsEl4.querySelectorAll('button')].filter((b) => /收藏本段/.test(b.textContent));
+    check('每段有「★ 收藏本段」按钮（2 个）', favBtns.length === 2, `n=${favBtns.length}`);
+    check('收藏按钮绑定了点击处理（actionBtn 自带 stopPropagation，不误触卡片选中）',
+      favBtns.every((b) => (b.listeners?.click?.length || 0) >= 1));
+    const selBefore = segPanel2.state.selected;
+    favBtns[0].dispatch('click');
+    await tick(4);
+    const favDlg = [...segHost2.querySelectorAll('.pp-overlay .pp-dlg')].at(-1);
+    check('点收藏本段打开收藏弹窗（复用现有编辑器）', !!favDlg && /标题/.test(favDlg.textContent));
+    check('预填文本 = 该段全文（不是合并文本）', favDlg.querySelector('textarea')?.value === 'best quality, highres'
+      || favDlg.querySelector('textarea')?.value.includes('best quality'), favDlg.querySelector('textarea')?.value?.slice(0, 40));
+    check('点收藏不改变卡片选中状态', segPanel2.state.selected === selBefore);
+    check('收藏弹窗打开后分段区展开状态保持（partsOpen 未丢）',
+      segPanel2.state.partsOpen.size >= 1, [...segPanel2.state.partsOpen].join(','));
+    // 填标题保存 → 落库带分段来源
+    favDlg.querySelector('input').value = '分段收藏测试';
+    [...favDlg.querySelectorAll('button')].find((b) => b.textContent === '保存').click();
+    await tick(10);
+    const libRaw = segApi.files.get('prompt_library/library.json');
+    const libItem = libRaw ? JSON.parse(libRaw).items.find((x) => x.title === '分段收藏测试') : null;
+    check('分段收藏落库', !!libItem, 'not found');
+    check('落库条目带分段来源标记（field=·分段N + seg 节点信息）', !!libItem && libItem.source?.field?.includes('分段')
+      && typeof libItem.source?.seg?.index === 'number' && !!libItem.source?.seg?.node_title,
+      JSON.stringify(libItem?.source || {}));
+    check('落库的 seg 节点信息指向该段上游节点（质量词节点）', !!libItem && libItem.source.seg.node_title === '固定质量词｜通常无需修改'
+      && libItem.source.node_class === 'PrimitiveStringMultiline');
+    segHost2.remove();
   }
 
   // 未选中就点收藏 → 提示而不是乱存
@@ -295,7 +337,8 @@ async function main() {
   findBtn('保存', dlg3).click();
   await tick(6);
   lib = libFile();
-  check('Qwen Image 2.1 收藏已保存（用"新增模型分类"填写）', lib.items.length === 3 && lib.items.some((i) => i.model === 'Qwen Image 2.1'));
+  // 分段收藏测试条目已改用独立假 api，不再进这个库，共 3 条
+  check('Qwen Image 2.1 收藏已保存（用"新增模型分类"填写）', lib.items.length === 3 && lib.items.some((i) => i.model === 'Qwen Image 2.1'), `n=${lib.items.length}`);
   check('三种模型各有一条', new Set(lib.items.map((i) => i.model)).size === 3, lib.items.map((i) => i.model).join(' / '));
 
   // —— 我的收藏视图：搜索 / 筛选 / 查看完整 / 复制 ——

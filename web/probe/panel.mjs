@@ -256,7 +256,8 @@ export function createPanel(app, opts = {}) {
 
     openItemEditor({
       host: rootEl,
-      mode: item ? 'edit' : 'create',
+      // 分段收藏传了带预填内容的 item 但不是编辑模式：用 item?.id 区分（新增时 id 为 undefined）
+      mode: (item && item.id) ? 'edit' : 'create',
       item: draft,
       models: state.library.models,
       warning: fromSelection ? draft.warningText : '',
@@ -674,8 +675,8 @@ export function createPanel(app, opts = {}) {
     return card;
   }
 
-  /** 拼接分段区块：默认折叠，每段节点title/输入口 + 全文（3 行截断可展开）+ 独立复制 */
-  function partsBlock(field, chainKey) {
+  /** 拼接分段区块：默认折叠，每段节点title/输入口 + 全文（3 行截断可展开）+ 独立复制/收藏 */
+  function partsBlock(field, chain, chainKey) {
     const segs = Array.isArray(field.parts) ? field.parts.filter((s) => (s.text || '') !== '') : [];
     if (segs.length <= 1) return null;
     const segKids = segs.map((s, i) => {
@@ -684,6 +685,7 @@ export function createPanel(app, opts = {}) {
       const src = s.source ? `${s.source.cls} #${s.source.id}${s.source.title ? `「${s.source.title}」` : ''}` : '（未知）';
       const segActions = h('div', { class: 'pp-row', style: 'margin:4px 0' }, [
         actionBtn(`复制本段 (${String(s.text || '').length} 字)`, () => copyText(s.text ?? '', segActions.querySelector('.pp-copy')), 'pp-btn pp-btn-mini pp-copy'),
+        actionBtn('★ 收藏本段', () => favoriteSeg(chain, field, s, i), 'pp-btn pp-btn-mini pp-primary'),
         actionBtn(segOpen ? '收起' : '展开', () => {
           if (state.expanded.has(segKey)) state.expanded.delete(segKey);
           else state.expanded.add(segKey);
@@ -717,6 +719,32 @@ export function createPanel(app, opts = {}) {
     return d;
   }
 
+  /** 收藏某个分段：走 openFavorite 同一条管道，预填该段全文，source 带分段来源标记 */
+  function favoriteSeg(chain, field, seg, index) {
+    const segSource = seg.source || {};
+    openFavorite({
+      fromSelection: false,
+      item: {
+        id: undefined,
+        title: segSource.title ? `${segSource.title}（分段${index + 1}）` : '',
+        text: String(seg.text || ''),
+        source: {
+          workflow: state.result?.meta?.workflowName || '',
+          node_id: segSource.id,
+          node_class: segSource.cls,
+          field: `${field.name}·分段${index + 1}`,
+          seg: { index: index + 1, input: seg.name, node_title: segSource.title || '' },
+          role: field.role,
+          status: seg.status,
+          status_text: statusTextOf(seg.status),
+          sampler: `${chain.sampler.cls} #${chain.sampler.id}`,
+          group: chain.sampler.group || '',
+          collected_at: new Date().toISOString()
+        }
+      }
+    });
+  }
+
   /** 字段（正向/负向）→ 卡片 */
   function fieldCard(field, target, chain) {
     const key = `chain-${chain.sampler.id}-${field.name}`;
@@ -736,7 +764,7 @@ export function createPanel(app, opts = {}) {
       ]));
     }
 
-    const partsEl = partsBlock(field, key);
+    const partsEl = partsBlock(field, chain, key);
 
     return promptCard({
       key,
