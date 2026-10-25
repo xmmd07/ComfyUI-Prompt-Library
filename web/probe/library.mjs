@@ -70,6 +70,8 @@ export function normalizeItem(raw) {
     model,
     text,
     source: raw.source && typeof raw.source === 'object' ? raw.source : {},
+    use_count: Number.isFinite(Number(raw.use_count)) ? Math.max(0, Math.floor(Number(raw.use_count))) : 0,
+    last_used_at: typeof raw.last_used_at === 'string' ? raw.last_used_at : null,
     created_at: typeof raw.created_at === 'string' ? raw.created_at : nowISO(),
     updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : nowISO()
   };

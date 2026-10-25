@@ -80,13 +80,21 @@ function copyButton(text, label = '复制') {
   return b;
 }
 
-/** 带 label 参数的复制按钮（复制后按钮文字短暂变化） */
-export function copyButtonFor(getText, label) {
+/** 收藏条目的复制按钮：成功后回调 onUsed（使用频率计数用） */
+export function useCountingCopy(it, onUsed = null) {
+  const b = copyButton(it.text, '复制');
+  if (onUsed) b.addEventListener('click', () => onUsed(it.id));
+  return b;
+}
+
+/** 带 label 参数的复制按钮（复制后按钮文字短暂变化）；onUsed 成功后回调（使用频率计数） */
+export function copyButtonFor(getText, label, onUsed = null) {
   const b = h('button', { class: 'pp-btn pp-btn-mini pp-copy', text: label });
   b.addEventListener('click', async () => {
     const ok = await copyToClipboard(getText());
     b.textContent = ok ? '已复制 ✓' : '复制失败';
     setTimeout(() => { b.textContent = label; }, 1200);
+    if (ok && onUsed) onUsed();
   });
   return b;
 }
@@ -251,7 +259,7 @@ export function confirmDialog({ host, title, message, confirmLabel = '确认删�
  * @param {function} [o.onToggleExpand]
  */
 export function renderLibraryView(o) {
-  const { library, query = '', model = '', items = [], handlers = {}, notice = null, expanded, toolbarSlot = null } = o;
+  const { library, query = '', model = '', items = [], handlers = {}, notice = null, expanded, toolbarSlot = null, sort = 'recent' } = o;
 
   /* ---- 工具条：搜索 → 模型筛选 → 刷新 / 导出 ---- */
   const searchInput = h('input', { class: 'pp-input pp-lib-search', type: 'text', value: query, placeholder: '按标题搜索…' });
@@ -266,9 +274,16 @@ export function renderLibraryView(o) {
   const toolbar = h('div', { class: 'pp-lib-toolbar pp-row' }, [
     searchInput,
     modelSelect,
+    h('select', { class: 'pp-input pp-lib-sort' }, [
+      h('option', { value: 'recent', text: '最新在前' }),
+      h('option', { value: 'used', text: '最常用' })
+    ]),
     h('button', { class: 'pp-btn pp-btn-mini', text: '刷新', onclick: () => handlers.onReload?.() }),
+    h('button', { class: 'pp-btn pp-btn-mini', text: '导入', onclick: () => handlers.onImport?.() }),
     h('button', { class: 'pp-btn pp-btn-mini', text: '导出', onclick: () => handlers.onExport?.() })
   ]);
+  toolbar.querySelector('.pp-lib-sort').value = sort || 'recent';
+  toolbar.querySelector('.pp-lib-sort').addEventListener('change', (ev) => handlers.onSort?.(ev.target?.value || 'recent'));
 
   const kids = [];
   if (toolbarSlot) toolbarSlot.appendChild(toolbar);
@@ -317,6 +332,9 @@ export function renderLibraryView(o) {
       h('div', { class: 'pp-lib-meta' }, [
         sBadge,
         h('span', { class: 'pp-len', text: `${String(it.text || '').length} 字` }),
+        (Number(it.use_count) || 0) > 0
+          ? h('span', { class: 'pp-len', title: it.last_used_at ? `最近使用 ${fmtTime(it.last_used_at)}` : '', text: `用了 ${it.use_count} 次` })
+          : null,
         h('span', { class: 'pp-len', text: `收藏于 ${fmtTime(it.created_at || it.updated_at)}` })
       ]),
       h('div', { class: 'pp-lib-src', text: `来源：${srcText}` }),
@@ -328,7 +346,7 @@ export function renderLibraryView(o) {
           onclick: () => o.onToggleExpand?.(it.id)
         }),
         h('button', { class: 'pp-btn pp-btn-mini', text: '编辑', onclick: () => handlers.onEdit?.(it) }),
-        copyButton(it.text),
+        useCountingCopy(it, handlers.onUsed),
         h('button', { class: 'pp-btn pp-btn-mini pp-danger', text: '删除', onclick: () => handlers.onDelete?.(it) })
       ])
     ]);

@@ -53,6 +53,8 @@ export function normalizeArtists(obj) {
       thumb: typeof it.thumb === 'string' && it.thumb ? it.thumb : null,
       orig: cleanOrig(it.orig),
       model: typeof it.model === 'string' && it.model.trim() ? it.model : null,
+      use_count: Number.isFinite(Number(it.use_count)) ? Math.max(0, Math.floor(Number(it.use_count))) : 0,
+      last_used_at: typeof it.last_used_at === 'string' ? it.last_used_at : null,
       created_at: it.created_at || new Date().toISOString(),
       updated_at: it.updated_at || it.created_at || new Date().toISOString()
     });
@@ -520,7 +522,7 @@ export function openHistoryPicker({ host, api, onPick }) {
  *   loadImage(name)->Promise<url|null>, releaseImage(name)}
  */
 export function renderArtistsView(o) {
-  const { data, items = [], notice = null, toolbarSlot = null, api = null, host = null, handlers = {}, loadImage, releaseImageRef } = o;
+  const { data, items = [], notice = null, toolbarSlot = null, api = null, host = null, handlers = {}, loadImage, releaseImageRef, onUsed = null } = o;
 
   const toolbar = h('div', { class: 'pp-lib-toolbar pp-row' }, [
     h('button', { class: 'pp-btn pp-btn-mini', text: '＋ 添加画师串', onclick: () => handlers.onAdd?.() }),
@@ -559,6 +561,9 @@ export function renderArtistsView(o) {
               text: it.model ? `模型 ${basenameOf(it.model)}` : '未指定模型',
               title: it.model || '未指定模型'
             }),
+            (Number(it.use_count) || 0) > 0
+              ? h('span', { class: 'pp-len', title: it.last_used_at ? `最近使用 ${it.last_used_at.slice(0, 16).replace('T', ' ')}` : '', text: `用了 ${it.use_count} 次` })
+              : null,
             h('span', { class: 'pp-len', text: it.thumb ? '有参考图' : '无参考图' }),
             h('span', { class: 'pp-len', text: `收藏于 ${(it.created_at || '').slice(0, 10)}` })
           ])
@@ -570,6 +575,7 @@ export function renderArtistsView(o) {
           const ok = await copyToClipboard(it.text);
           b.textContent = ok ? '已复制 ✓' : '复制失败';
           setTimeout(() => { b.textContent = '复制'; }, 1200);
+          if (ok && onUsed) onUsed(it.id);
         } }),
         h('button', { class: 'pp-btn pp-btn-mini', text: '编辑', onclick: () => handlers.onEdit?.(it) }),
         h('button', { class: 'pp-btn pp-btn-mini pp-danger', text: '删除', onclick: () => handlers.onDelete?.(it) })

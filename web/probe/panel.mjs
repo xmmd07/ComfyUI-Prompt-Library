@@ -57,6 +57,7 @@ export function createPanel(app, opts = {}) {
     library: emptyLibrary(),
     libQuery: '',
     libModel: '',
+    libSort: 'recent',           // 'recent'（默认，最新在前）| 'used'（最常用）
     libExpanded: new Set(),
     libNotice: null,
     libLoading: false,
@@ -446,6 +447,117 @@ export function createPanel(app, opts = {}) {
         render();
       }
     });
+  }
+
+  /** 收藏导入：选文件 → 校验 → 按 id 合并（本地已有即跳过，绝不覆盖/整库替换） */
+  function importLibrary() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) {
+        state.libNotice = { level: 'error', text: `文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），导入上限 10MB` };
+        render();
+        return;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(await file.text());
+      } catch (e) {
+        state.libNotice = { level: 'error', text: '文件不是合法的收藏库导出（JSON 解析失败）' };
+        render();
+        return;
+      }
+      const incoming = (Array.isArray(parsed?.items) ? parsed.items : []).map(normalizeItem).filter(Boolean);
+      if (!incoming.length) {
+        state.libNotice = { level: 'error', text: '文件里没有可导入的收藏条目（结构需为 {version, items:[...]}）' };
+        render();
+        return;
+      }
+      // 按 id 合并：本地已有该 id 一律跳过（导入是"补充"不是"同步"，不覆盖手工攒的数据）
+      const existing = new Set((state.library.items || []).map((x) => x.id));
+      let added = 0;
+      let skipped = 0;
+      const models = new Set(state.library.models || []);
+      const next = normalizeLibrary({ ...state.library, items: state.library.items.slice() });
+      for (const it of incoming) {
+        if (existing.has(it.id)) { skipped++; continue; }
+        existing.add(it.id);
+        next.items.push(it);
+        if (it.model) models.add(it.model);
+        added++;
+      }
+      if (!added) {
+        state.libNotice = { level: 'warn', text: `导入完成：0 条新增，跳过 ${skipped} 条与现有重复` };
+        render();
+        return;
+      }
+      next.models = [...models];
+      try {
+        const res = await storage.save(next);
+        state.library = res.library;
+        state.library.__path = storage.paths.human;
+        state.libNotice = { level: 'info', text: `导入完成：新增 ${added} 条${skipped ? `，跳过 ${skipped} 条与现有重复` : ''}` };
+        render();
+      } catch (e) {
+        state.libNotice = { level: 'error', text: `导入失败（未写入，数据未变）：${errText(e)}` };
+        render();
+      }
+    });
+    input.click();
+  }
+
+  /** 收藏使用频率：复制成功后 +1（内存），防抖 5 秒落盘一次 */
+  const usageTimers = new Map();          // id -> timer
+  function bumpUsage(id) {
+    const it = (state.library.items || []).find((x) => x.id === id);
+    if (!it) return;
+    it.use_count = (Number(it.use_count) || 0) + 1;
+    it.last_used_at = new Date().toISOString();
+    if (usageTimers.has(id)) clearTimeout(usageTimers.get(id));
+    usageTimers.set(id, setTimeout(() => {
+      usageTimers.delete(id);
+      if (!storage || !state.library) return;
+      storage.save(normalizeLibrary({ ...state.library, items: state.library.items.slice() }))
+        .then((res) => { state.library = res.library; state.library.__path = storage.paths.human; })
+        .catch(() => { /* 静默：下次复制再落盘 */ });
+    }, 5000));
+  }
+
+  /** 画师串使用频率：复制成功后 +1（内存），防抖 5 秒落盘一次 */
+  const artUsageTimers = new Map();
+  function bumpArtistUsage(id) {
+    const it = (state.artists.items || []).find((x) => x.id === id);
+    if (!it) return;
+    it.use_count = (Number(it.use_count) || 0) + 1;
+    it.last_used_at = new Date().toISOString();
+    if (artUsageTimers.has(id)) clearTimeout(artUsageTimers.get(id));
+    artUsageTimers.set(id, setTimeout(() => {
+      artUsageTimers.delete(id);
+      if (!artFiles || !state.artists) return;
+      saveArtists(normalizeArtists({ ...state.artists, items: state.artists.items.slice() }))
+        .then((saved) => { state.artists = saved; })
+        .catch(() => { /* 静默：下次复制再落盘 */ });
+    }, 5000));
+  }
+
+  /** LoRA 使用频率：复制提示词/复制 LoRA 名成功后 +1（内存），防抖 5 秒落盘一次 */
+  const loraUsageTimers = new Map();
+  function bumpLoraUsage(id) {
+    const it = (state.loras.items || []).find((x) => x.id === id);
+    if (!it) return;
+    it.use_count = (Number(it.use_count) || 0) + 1;
+    it.last_used_at = new Date().toISOString();
+    if (loraUsageTimers.has(id)) clearTimeout(loraUsageTimers.get(id));
+    loraUsageTimers.set(id, setTimeout(() => {
+      loraUsageTimers.delete(id);
+      if (!artFiles || !state.loras) return;
+      saveLoras(normalizeLoras({ ...state.loras, items: state.loras.items.slice() }))
+        .then((saved) => { state.loras = saved; })
+        .catch(() => { /* 静默：下次复制再落盘 */ });
+    }, 5000));
   }
 
   /** 保存（新增/编辑）：处理选图 → 压缩 1024px 副本 → 写 artists.json；串就是标题，没有名称字段 */
@@ -943,12 +1055,17 @@ export function createPanel(app, opts = {}) {
   }
 
   function renderLibrary() {
-    const items = filterItems(state.library, { query: state.libQuery, model: state.libModel });
+    const items = filterItems(state.library, { query: state.libQuery, model: state.libModel })
+      .slice()
+      .sort((a, b) => state.libSort === 'used'
+        ? ((Number(b.use_count) || 0) - (Number(a.use_count) || 0))
+        : String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
     bodyEl.appendChild(renderLibraryView({
       library: state.library,
       query: state.libQuery,
       model: state.libModel,
       items,
+      sort: state.libSort,
       expanded: state.libExpanded,
       toolbarSlot: toolbarEl.__libSlot || null,
       notice: state.libLoading ? { level: 'info', text: '正在读取收藏库…' } : state.libNotice,
@@ -969,7 +1086,10 @@ export function createPanel(app, opts = {}) {
           render();
         },
         onEdit: (item) => openFavorite({ item }),
-        onDelete: (item) => askDelete(item)
+        onDelete: (item) => askDelete(item),
+        onImport: () => importLibrary(),
+        onSort: (v) => { state.libSort = v; render(); },
+        onUsed: (id) => { bumpUsage(id); render(); },
       }
     }));
   }
@@ -1034,6 +1154,7 @@ export function createPanel(app, opts = {}) {
       toolbarSlot: toolbarEl.__artSlot || null,
       api,
       host: rootEl,
+      onUsed: (id) => { bumpArtistUsage(id); render(); },
       loadImage: (name) => loadImageObjectURL(api, name),
       releaseImageRef: releaseImage,
       handlers: {
@@ -1077,6 +1198,7 @@ export function createPanel(app, opts = {}) {
       notice: state.loraLoading ? { level: 'info', text: '正在读取 LoRA 提示词…' } : state.loraNotice,
       toolbarSlot: toolbarEl.__loraSlot || null,
       api,
+      onUsed: (id) => { bumpLoraUsage(id); render(); },
       handlers: {
         onAdd: () => openLoraEditor({ host: rootEl, mode: 'create', item: {}, api, onSave: persistLora }),
         onEdit: (item) => openLoraEditor({ host: rootEl, mode: 'edit', item, api, onSave: persistLora }),
@@ -1095,7 +1217,7 @@ export function createPanel(app, opts = {}) {
     rootEl = h('div', { class: 'pp-root' });
     rootEl.appendChild(h('div', { class: 'pp-head' }, [
       h('span', { class: 'pp-title', text: 'Prompt Library' }),
-      h('span', { class: 'pp-ver', text: 'v0.4.4 · 探针 / 收藏 / 画师串 / LoRA' })
+      h('span', { class: 'pp-ver', text: 'v0.4.5 · 探针 / 收藏 / 画师串 / LoRA' })
     ]));
     segEl = h('div', { class: 'pp-seg' });
     toolbarEl = h('div', { class: 'pp-toolbar' });

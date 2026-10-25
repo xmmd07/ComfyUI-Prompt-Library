@@ -7,7 +7,7 @@ A **pure-frontend** ComfyUI sidebar extension: it read-only scans the prompts in
 **Four tabs in the sidebar:**
 
 - **Probe** (read-only scan) — checks whether prompts in your workflow can actually be read correctly, and which node each one comes from. For prompts assembled by concat nodes (`StringConcatenate` family / `JoinStringMulti` / `CR Combine Prompt`), it shows **per-segment breakdown**: each segment can be copied or favorited on its own.
-- **Favorites** — save, search, filter, view, edit, copy, delete.
+- **Favorites** — save, search, filter, view, edit, copy, delete; import from a JSON export (merge by id, duplicates skipped); sort by recent or most-used (copy count).
 - **Artist Strings** — each entry is the artist string itself; optionally attach a reference image from your output history and zoom it in a lightbox.
 - **LoRA Notes** — attach a note ("which spell works with this LoRA") to any LoRA; pick from your LoRA list when adding.
 
@@ -116,7 +116,7 @@ node web/tools/selftest_artists.mjs   # ④ artist strings (in-memory)
 node web/tools/selftest_loras.mjs     # ⑤ LoRA notes (in-memory)
 ```
 
-322 assertions across the five suites (36+125+23+89+49). Interactions that depend on event bubbling can't be covered by the in-memory DOM shim — verify those in a real browser.
+316 assertions across the five suites (36+134+23+89+49). Interactions that depend on event bubbling can't be covered by the in-memory DOM shim — verify those in a real browser.
 
 ## Uninstall
 

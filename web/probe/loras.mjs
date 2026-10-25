@@ -44,6 +44,8 @@ export function normalizeLoras(obj) {
       id,
       lora,
       prompt,
+      use_count: Number.isFinite(Number(it.use_count)) ? Math.max(0, Math.floor(Number(it.use_count))) : 0,
+      last_used_at: typeof it.last_used_at === 'string' ? it.last_used_at : null,
       created_at: it.created_at || new Date().toISOString(),
       updated_at: it.updated_at || it.created_at || new Date().toISOString()
     });
@@ -251,7 +253,7 @@ export function openLoraEditor({ host, mode = 'create', item = {}, onSave, onCan
  * @param {object} o {data, notice, toolbarSlot, api, handlers:{onAdd,onEdit(item),onDelete(item),onReload}}
  */
 export function renderLorasView(o) {
-  const { data, notice = null, toolbarSlot = null, handlers = {} } = o;
+  const { data, notice = null, toolbarSlot = null, handlers = {}, onUsed = null } = o;
 
   const toolbar = h('div', { class: 'pp-lib-toolbar pp-row' }, [
     h('button', { class: 'pp-btn pp-btn-mini', text: '＋ 添加 LoRA 提示词', onclick: () => handlers.onAdd?.() }),
@@ -282,11 +284,14 @@ export function renderLorasView(o) {
       h('div', { class: 'pp-lora-prompt pp-clamp3', text: it.prompt, title: it.prompt }),
       h('div', { class: 'pp-lib-meta' }, [
         h('span', { class: 'pp-len', text: `${String(it.prompt || '').length} 字` }),
+        (Number(it.use_count) || 0) > 0
+          ? h('span', { class: 'pp-len', title: it.last_used_at ? `最近使用 ${it.last_used_at.slice(0, 16).replace('T', ' ')}` : '', text: `用了 ${it.use_count} 次` })
+          : null,
         h('span', { class: 'pp-len', text: `收藏于 ${(it.created_at || '').slice(0, 10)}` })
       ]),
       h('div', { class: 'pp-lib-item-actions' }, [
-        copyButtonFor(() => it.prompt, '复制提示词'),
-        copyButtonFor(() => it.lora, '复制 LoRA 名'),
+        copyButtonFor(() => it.prompt, '复制提示词', () => { if (onUsed) onUsed(it.id); }),
+        copyButtonFor(() => it.lora, '复制 LoRA 名', () => { if (onUsed) onUsed(it.id); }),
         h('button', { class: 'pp-btn pp-btn-mini', text: '编辑', onclick: () => handlers.onEdit?.(it) }),
         h('button', { class: 'pp-btn pp-btn-mini pp-danger', text: '删除', onclick: () => handlers.onDelete?.(it) })
       ])
