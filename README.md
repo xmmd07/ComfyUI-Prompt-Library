@@ -116,7 +116,7 @@ node web/tools/selftest_artists.mjs   # ④ artist strings (in-memory)
 node web/tools/selftest_loras.mjs     # ⑤ LoRA notes (in-memory)
 ```
 
-304 assertions across the five suites. Interactions that depend on event bubbling can't be covered by the in-memory DOM shim — verify those in a real browser.
+322 assertions across the five suites (36+125+23+89+49). Interactions that depend on event bubbling can't be covered by the in-memory DOM shim — verify those in a real browser.
 
 ## Uninstall
 
