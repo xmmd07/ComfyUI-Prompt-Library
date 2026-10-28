@@ -10,6 +10,9 @@
  */
 
 import { installMinidom } from './minidom.mjs';
+// 界面文案固定中文：保持与改造前断言口径一致；英文/切换/回退由 selftest_i18n.mjs 覆盖
+import { setLocaleForTest } from '../probe/i18n.mjs';
+setLocaleForTest('zh');
 
 const minidom = installMinidom();
 const restore = () => minidom.restore();

@@ -12,15 +12,33 @@
 
 import {
   isEncoderClass, encoderFields, producerRule, wildcardNote,
-  CHAIN_ROOT_INPUTS, CHAIN_HOP_INPUTS, CONDUIT_INPUTS, MODE_TEXT
+  CHAIN_ROOT_INPUTS, CHAIN_HOP_INPUTS, CONDUIT_INPUTS, modeKey
 } from './adapters.mjs';
 
-export const STATUS_TEXT = {
-  confirmed: '已确认',
-  partial: '部分确认',
-  candidate: '候选文本',
-  runtime: '运行时生成',
-  unknown: '无法确认'
+/*
+ * 文案策略（结构化文案）：
+ *   本文件只产出 `{code, params}`，**不产出任何自然语言**。
+ *   code 是词典键，params 是纯数据（数字 / 节点类名 / 嵌套文案）。
+ *   显示层用 `fmt()`（i18n.mjs）渲染，所以同一份解析结果可随时切换语言。
+ *
+ *   为什么这么做：以前 notes / path 里塞的是中文句子，这些值会跟着收藏条目
+ *   一起落库、也会被自测断言；界面要出英文就只能重写解析器。
+ *
+ * 稳定性约定：`status` / `role` / `mode` 是**稳定的内部标识**（永不翻译），
+ *   界面文案一律由 `t('status.' + code)` 这类映射生成。
+ *   连接符由 `core.pathJoin` / `core.pathPlus` 提供，不写进参数拼接。
+ */
+
+/** 构造 `core.*` 命名空间下的结构化文案 */
+const m = (code, params) => ({ code: `core.${code}`, params: params || {} });
+
+/** 状态码 → 结构化文案（稳定标识 `status` 本身不变） */
+export const statusMsg = (status) => ({ code: `status.${status}`, params: {} });
+
+/** 节点 mode → 结构化文案；未登记的模式回退为原始数字 */
+export const modeMsg = (mode) => {
+  const key = modeKey(mode);
+  return key ? { code: key, params: {} } : { code: 'meta.modeRaw', params: { n: String(mode) } };
 };
 
 const MAX_DEPTH = 40;
@@ -40,7 +58,7 @@ export function scan(view) {
       const built = buildChain(view, chain, usedEncoderIds);
       result.chains.push(built);
     } catch (e) {
-      result.errors.push(`采样链（节点 #${chain?.sampler?.id}）解析异常：${e?.message || e}`);
+      result.errors.push(m('chainScan', { id: chain?.sampler?.id, error: e?.message || String(e) }));
     }
   }
 
@@ -58,16 +76,16 @@ export function scan(view) {
         cls: node.cls,
         title: node.title,
         mode: node.mode,
-        modeText: MODE_TEXT[node.mode] ?? String(node.mode),
+        modeText: modeMsg(node.mode),
         collapsed: node.collapsed,
         group: node.group,
         field,
         generic: info.generic,
         ...got,
-        reason: '该文本编码节点的输出没有连到任何采样器的 positive（未被当前采样链引用）'
+        reason: m('candUnreferenced')
       });
     } catch (e) {
-      result.errors.push(`候选节点 #${node?.id} 解析异常：${e?.message || e}`);
+      result.errors.push(m('candidateScan', { id: node?.id, error: e?.message || String(e) }));
     }
   }
 
@@ -115,7 +133,7 @@ function findChains(view) {
               negative: firstLinkedInput(view, guider, ['negative']),
               via: guider,
               hint: gpos.name === 'conditioning'
-                ? `${guider.cls} #${guider.id} 只有单个 conditioning 输入，已按其作为正向处理`
+                ? m('guiderSingle', { cls: guider.cls, id: guider.id })
                 : null
             });
           }
@@ -167,7 +185,7 @@ function buildChain(view, chain, usedEncoderIds) {
     cls: sampler.cls,
     title: sampler.title,
     mode: sampler.mode,
-    modeText: MODE_TEXT[sampler.mode] ?? String(sampler.mode),
+    modeText: modeMsg(sampler.mode),
     bypassed: sampler.mode === 4 || sampler.mode === 2,
     collapsed: sampler.collapsed,
     group: sampler.group,
@@ -188,9 +206,12 @@ function buildChain(view, chain, usedEncoderIds) {
   };
 
   if (!traced.encoder) {
-    out.warning = `未能沿 ${entryLink ? chain.entryName : 'positive'} 找到文本编码节点（链路：${traced.hops
-      .map((h) => `#${h.id} ${h.cls}`)
-      .join(' ← ') || '空'}）`;
+    out.warning = m('chainNotTraced', {
+      entry: entryLink ? chain.entryName : 'positive',
+      hops: traced.hops.length
+        ? joinMsgs(traced.hops.map((h) => m('pathHops', { id: h.id, cls: h.cls })), 'pathJoin')
+        : m('empty')
+    });
     return out;
   }
 
@@ -203,7 +224,7 @@ function buildChain(view, chain, usedEncoderIds) {
     cls: encoder.cls,
     title: encoder.title,
     mode: encoder.mode,
-    modeText: MODE_TEXT[encoder.mode] ?? String(encoder.mode),
+    modeText: modeMsg(encoder.mode),
     bypassed: encoder.mode === 4 || encoder.mode === 2,
     collapsed: encoder.collapsed,
     group: encoder.group,
@@ -213,7 +234,8 @@ function buildChain(view, chain, usedEncoderIds) {
 
   info.fields.forEach((field, idx) => {
     const entry = extractField(view, encoder, field);
-    const role = /negative|neg\b/i.test(field) ? '负向' : idx === 0 ? '正向' : '附加';
+    // role 是稳定内部标识（positive / negative / extra），永不翻译；界面用 t('role.' + role)
+    const role = /negative|neg\b/i.test(field) ? 'negative' : idx === 0 ? 'positive' : 'extra';
     // 残留控件值检测：控件里有内容，但实际生效的是连线
     const w = view.widget(encoder, field);
     const widgetText = w.found && typeof w.value === 'string' ? w.value : '';
@@ -222,12 +244,12 @@ function buildChain(view, chain, usedEncoderIds) {
       name: field,
       role,
       fromLink: !!entry.fromLink,
-      statusText: STATUS_TEXT[entry.status] || entry.status,
+      statusText: statusMsg(entry.status),
       ...entry,
       staleWidget,
       staleLen: staleWidget ? widgetText.length : 0,
       notes: (entry.notes || []).concat(staleWidget
-        ? [`该控件里还存有 ${widgetText.length} 字的旧文本，但已被连线取代（实际生效的是上面解析出的内容）`]
+        ? [m('staleWidget', { length: widgetText.length })]
         : [])
     });
   });
@@ -245,14 +267,19 @@ function buildChain(view, chain, usedEncoderIds) {
         text: got.text,
         length: (got.text || '').length,
         status: got.status,
-        statusText: STATUS_TEXT[got.status] || got.status,
+        statusText: statusMsg(got.status),
         notes: got.notes || []
       };
     } else {
       out.negative = {
         target: null,
-        note: `负向没有连到文本编码节点（链路：${nt.hops.map((h) => `#${h.id} ${h.cls}`).join(' ← ') || '空'}）`,
-        text: null, length: 0, status: 'unknown', statusText: STATUS_TEXT.unknown
+        note: m('chainNotTraced', {
+          entry: 'negative',
+          hops: nt.hops.length
+            ? joinMsgs(nt.hops.map((h) => m('pathHops', { id: h.id, cls: h.cls })), 'pathJoin')
+            : m('empty')
+        }),
+        text: null, length: 0, status: 'unknown', statusText: statusMsg('unknown')
       };
     }
   }
@@ -261,9 +288,12 @@ function buildChain(view, chain, usedEncoderIds) {
 }
 
 function chainLabel(sampler, via) {
-  const g = sampler.group ? `【${sampler.group}】` : '';
-  const v = via ? `（经 ${via.cls} #${via.id}）` : '';
-  return `${g}${sampler.cls} #${sampler.id}${v}`;
+  return m('chainLabel', {
+    group: sampler.group ? m('chainLabelGroup', { group: sampler.group }) : '',
+    cls: sampler.cls,
+    id: sampler.id,
+    via: via ? m('chainLabelVia', { cls: via.cls, id: via.id }) : ''
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -294,7 +324,7 @@ function extractField(view, encoder, fieldName) {
       text,
       status: 'confirmed',
       source: { id: encoder.id, cls: encoder.cls, title: encoder.title },
-      path: `#${encoder.id} ${encoder.cls}.${fieldName}（控件内直接写入）`,
+      path: m('pathDirectWidget', { id: encoder.id, cls: encoder.cls, field: fieldName }),
       branches: [],
       notes: wildcardNote(text),
       fromLink: false,
@@ -307,7 +337,7 @@ function extractField(view, encoder, fieldName) {
     source: null,
     path: '',
     branches: [],
-    notes: [`字段「${fieldName}」既没有连线，也没有读到控件值`],
+    notes: [m('fieldNoValue', { field: fieldName })],
     fromLink: false,
     length: 0
   };
@@ -320,11 +350,11 @@ function extractField(view, encoder, fieldName) {
 export function resolveString(view, nodeId, ctx = {}) {
   const stack = ctx.stack || new Set();
   const depth = ctx.depth || 0;
-  if (depth > MAX_DEPTH) return miss(`链路超过 ${MAX_DEPTH} 层，已停止`);
+  if (depth > MAX_DEPTH) return miss(m('tooDeep', { max: MAX_DEPTH }));
   const node = view.byId(nodeId);
-  if (!node) return miss(`节点 #${nodeId} 不在当前图中`);
+  if (!node) return miss(m('nodeMissing', { id: nodeId }));
   const key = String(node.id);
-  if (stack.has(key)) return miss(`检测到循环引用（节点 #${node.id}）`);
+  if (stack.has(key)) return miss(m('cycle', { id: node.id }));
 
   const nextStack = new Set(stack);
   nextStack.add(key);
@@ -352,8 +382,11 @@ export function resolveString(view, nodeId, ctx = {}) {
         text: null,
         status: 'runtime',
         source: self,
-        path: pathOf(node, `${node.cls} 运行期生成`),
-        notes: [`${node.cls} 的文本在运行期生成（${rule.why || '动态内容'}），静态读取不到`],
+        path: pathOf(node, m('pathRuntime', { cls: node.cls })),
+        notes: [m('runtimeGenerated', {
+          cls: node.cls,
+          why: rule.why ? { code: `core.why.${rule.why}`, params: {} } : m('dynamic')
+        })],
         branches: []
       };
     default:
@@ -365,7 +398,7 @@ function takeField(view, node, field, ctx, self) {
   const link = view.inputLink(node, field);
   if (link) {
     const r = resolveString(view, link.id, ctx);
-    return { ...r, path: pathOf(node, `${field} ← ${r.path || '上游'}`) };
+    return { ...r, path: pathOf(node, m('pathFieldLink', { field, inner: r.path || m('upstream') })) };
   }
   const w = view.widget(node, field);
   if (w.found && w.value != null) {
@@ -374,7 +407,7 @@ function takeField(view, node, field, ctx, self) {
       text,
       status: 'confirmed',
       source: self,
-      path: pathOf(node, `${node.cls}.${field}（控件）`),
+      path: pathOf(node, m('pathWidget', { cls: node.cls, field })),
       notes: wildcardNote(text),
       branches: []
     };
@@ -383,8 +416,8 @@ function takeField(view, node, field, ctx, self) {
     text: null,
     status: 'unknown',
     source: self,
-    path: pathOf(node, `${node.cls}.${field} 读不到值`),
-    notes: [`${node.cls} 的控件「${field}」没有读到值（可能被改名为输入口或未初始化）`],
+    path: pathOf(node, m('widgetUnreadable', { cls: node.cls, field })),
+    notes: [m('widgetMissing', { cls: node.cls, field })],
     branches: []
   };
 }
@@ -413,7 +446,7 @@ function resolveJoin(view, node, ctx, self) {
       parts.push(r.text == null ? '' : r.text);
       statuses.push(r.status);
       if (r.path) paths.push(r.path);
-      if (r.notes?.length) notes.push(`第${k}段：${r.notes.join('；')}`);
+      if (r.notes?.length) notes.push(m('joinPartNotes', { k, notes: r.notes }));
       segs.push({ name, text: r.text, status: r.status, source: r.source || null });
     } else {
       const w = view.widget(node, name);
@@ -425,7 +458,7 @@ function resolveJoin(view, node, ctx, self) {
       } else {
         parts.push('');
         statuses.push('partial');
-        notes.push(`第${k}段既没有连线也没有控件值（按空串处理）`);
+        notes.push(m('joinPartEmpty', { k }));
         segs.push({ name, text: '', status: 'partial', source: self });
       }
     }
@@ -436,7 +469,12 @@ function resolveJoin(view, node, ctx, self) {
     parts: segs.filter((s) => (s.text || '') !== '').length > 1 ? segs : undefined,
     status: combineStatus(statuses, text),
     source: self,
-    path: pathOf(node, `${node.cls}[${count}段 "${delim}"] ← ${paths.join(' + ') || '控件值'}`),
+    path: pathOf(node, m('pathJoinNode', {
+      cls: node.cls,
+      count,
+      delim,
+      paths: joinMsgs(paths, 'pathPlus') || m('widgetValue')
+    })),
     notes,
     branches: []
   };
@@ -465,7 +503,7 @@ function resolveConcat(view, node, rule, ctx, self) {
       } else {
         parts.push('');
         statuses.push('partial');
-        notes.push(`「${name}」读不到值`);
+        notes.push(m('concatPartMissing', { name }));
         segs.push({ name, text: '', status: 'partial', source: self });
       }
     }
@@ -478,7 +516,11 @@ function resolveConcat(view, node, rule, ctx, self) {
     parts: segs.filter((s) => (s.text || '') !== '').length > 1 ? segs : undefined,
     status: combineStatus(statuses, text),
     source: self,
-    path: pathOf(node, `${node.cls}(${rule.parts.join(' + ')}) ← ${paths.join(' + ') || '控件值'}`),
+    path: pathOf(node, m('pathConcat', {
+      cls: node.cls,
+      parts: joinMsgs(rule.parts, 'pathPlus'),
+      paths: joinMsgs(paths, 'pathPlus') || m('widgetValue')
+    })),
     notes,
     branches: []
   };
@@ -489,18 +531,18 @@ function resolveSwitchState(view, node) {
   const link = view.inputLink(node, 'switch');
   if (!link) {
     const w = view.widget(node, 'switch');
-    if (w.found && w.value != null) return { known: true, value: !!w.value, how: `开关控件值 = ${w.value}` };
-    return { known: false, value: null, how: '开关控件缺失' };
+    if (w.found && w.value != null) return { known: true, value: !!w.value, how: m('switchWidget', { value: String(w.value) }) };
+    return { known: false, value: null, how: m('switchWidgetMissing') };
   }
   const src = view.byId(link.id);
-  if (!src) return { known: false, value: null, how: `开关来自连线（源节点 #${link.id} 不存在）` };
+  if (!src) return { known: false, value: null, how: m('switchLinkMissing', { id: link.id }) };
   for (const nm of ['value', 'boolean', 'bool', 'switch']) {
     const w = view.widget(src, nm);
     if (w.found && (typeof w.value === 'boolean' || typeof w.value === 'number')) {
-      return { known: true, value: !!w.value, how: `开关 ← ${src.cls} #${src.id}.${nm} = ${w.value}` };
+      return { known: true, value: !!w.value, how: m('switchFromNode', { cls: src.cls, id: src.id, name: nm, value: String(w.value) }) };
     }
   }
-  return { known: false, value: null, how: `开关 ← ${src.cls} #${src.id}（运行期决定，静态无法判断）` };
+  return { known: false, value: null, how: m('switchRuntime', { cls: src.cls, id: src.id }) };
 }
 
 function resolveSwitch(view, node, ctx, self) {
@@ -512,33 +554,43 @@ function resolveSwitch(view, node, ctx, self) {
     const link = view.inputLink(node, slot);
     if (!link) return null;
     const r = resolveString(view, link.id, ctx);
-    if (r.notes?.length) nestedNotes.push(`↳ ${slot} 内部：${r.notes.join('；')}`);
+    if (r.notes?.length) nestedNotes.push(m('nestedNote', { slot, notes: r.notes }));
+    const active = sw.known ? (slot === 'on_true') === !!sw.value : null;
+    const textPreview = preview(r.text);
     branches.push({
       slot,
-      active: sw.known ? (slot === 'on_true') === !!sw.value : null,
+      active,
       status: r.status,
-      statusText: STATUS_TEXT[r.status] || r.status,
-      preview: preview(r.text),
+      statusText: statusMsg(r.status),
+      preview: textPreview,
+      hasText: textPreview !== '',
       length: (r.text || '').length,
       source: r.source,
-      text: r.text
+      text: r.text,
+      line: m('branchLine', {
+        slot,
+        marker: active === true ? m('branchActive') : active === false ? m('branchInactive') : '',
+        n: (r.text || '').length,
+        status: statusMsg(r.status),
+        preview: textPreview !== '' ? textPreview : m('empty')
+      })
     });
     return r;
   };
   const onTrue = get('on_true');
   const onFalse = get('on_false');
-  const notes = [`开关判定：${sw.how}`];
-  branches.forEach((b) => notes.push(`分支 ${b.slot}：${b.length} 字${b.active === true ? '（当前生效）' : b.active === false ? '（未生效）' : ''} — ${b.preview}`));
+  const notes = [m('switchJudge', { how: sw.how })];
+  branches.forEach((b) => notes.push(b.line));
   notes.push(...nestedNotes);
 
   const active = sw.known ? (sw.value ? onTrue : onFalse) : null;
   if (!active) {
-    notes.push('开关走向无法静态确定 → 不给出"最终文本"，仅列出两个分支供人工判断');
+    notes.push(m('switchUndecided'));
     return {
       text: null,
       status: 'candidate',
       source: self,
-      path: pathOf(node, `${node.cls} 分支未定（${sw.how}）`),
+      path: pathOf(node, m('pathSwitchUndecided', { cls: node.cls, how: sw.how })),
       notes,
       branches
     };
@@ -547,7 +599,11 @@ function resolveSwitch(view, node, ctx, self) {
     text: active.text,
     status: active.status,
     source: active.source || self,
-    path: pathOf(node, `${node.cls} → ${sw.value ? 'on_true' : 'on_false'} → ${active.path || ''}`),
+    path: pathOf(node, m('pathSwitchChosen', {
+      cls: node.cls,
+      slot: sw.value ? 'on_true' : 'on_false',
+      inner: active.path || ''
+    })),
     notes,
     branches
   };
@@ -562,8 +618,11 @@ function resolveGet(view, node, ctx, self) {
       text: null,
       status: 'unknown',
       source: self,
-      path: pathOf(node, `${node.cls}(Set_${key}) 未配对`),
-      notes: [`找不到键为「${key}」的 Set 节点（现有键：${entries.map((e) => e.key).join(', ') || '无'}）`],
+      path: pathOf(node, m('pathGetUnpaired', { cls: node.cls, key })),
+      notes: [m('getNoSetNode', {
+        key,
+        keys: entries.length ? entries.map((e) => e.key).join(', ') : m('noneValue')
+      })],
       branches: []
     };
   }
@@ -585,7 +644,7 @@ function resolveGet(view, node, ctx, self) {
           text,
           status: 'confirmed',
           source: self,
-          path: pathOf(node, `${node.cls}(Set_${key}) ← 控件`),
+          path: pathOf(node, m('pathGetWidget', { cls: node.cls, key })),
           notes: wildcardNote(text),
           branches: []
         };
@@ -595,8 +654,8 @@ function resolveGet(view, node, ctx, self) {
       text: null,
       status: 'unknown',
       source: self,
-      path: pathOf(node, `${node.cls}(Set_${key}) 无输入`),
-      notes: [`配对的 Set 节点（#${setNode.id} ${setNode.cls}）既没有连线也没有控件值`],
+      path: pathOf(node, m('pathGetNoInput', { cls: node.cls, key })),
+      notes: [m('setNodeNoValue', { id: setNode.id, cls: setNode.cls })],
       branches: []
     };
   }
@@ -604,8 +663,14 @@ function resolveGet(view, node, ctx, self) {
   return {
     ...r,
     source: r.source || self,
-    path: pathOf(node, `${node.cls}(Set_${key}) ← Set #${setNode.id}(${usedName}) ← ${r.path || '上游'}`),
-    notes: [`经 SetNode/GetNode 取值（键「${key}」）`].concat(r.notes || []),
+    path: pathOf(node, m('pathGetChain', {
+      cls: node.cls,
+      key,
+      id: setNode.id,
+      name: usedName,
+      inner: r.path || m('upstream')
+    })),
+    notes: [m('viaSetNode', { key })].concat(r.notes || []),
     branches: r.branches || []
   };
 }
@@ -623,8 +688,8 @@ function genericFallback(view, node, ctx) {
         text,
         status: 'candidate',
         source: self,
-        path: pathOf(node, `${node.cls}.${textish[0]}（通用规则推测）`),
-        notes: [`节点类 ${node.cls} 未登记在适配器表里，按其唯一文本控件「${textish[0]}」推测，未逐字校验`],
+        path: pathOf(node, m('pathGenericGuess', { cls: node.cls, field: textish[0] })),
+        notes: [m('genericGuess', { cls: node.cls, field: textish[0] })],
         branches: []
       };
     }
@@ -636,16 +701,16 @@ function genericFallback(view, node, ctx) {
     return {
       ...r,
       status: r.status === 'confirmed' ? 'candidate' : r.status,
-      path: pathOf(node, `${node.cls}.${linkedStringInput} ← ${r.path || '上游'}`),
-      notes: (r.notes || []).concat([`节点类 ${node.cls} 未登记，已按输入口「${linkedStringInput}」向上游取值（状态降级为候选）`])
+      path: pathOf(node, m('pathGenericLink', { cls: node.cls, field: linkedStringInput, inner: r.path || m('upstream') })),
+      notes: (r.notes || []).concat([m('genericUnregistered', { cls: node.cls, field: linkedStringInput })])
     };
   }
   return {
     text: null,
     status: 'unknown',
     source: self,
-    path: pathOf(node, `${node.cls} 未登记`),
-    notes: [`节点类 ${node.cls} 未登记为文本来源，无法确定其文本内容`],
+    path: pathOf(node, m('pathUnregistered', { cls: node.cls })),
+    notes: [m('unregistered', { cls: node.cls })],
     branches: []
   };
 }
@@ -667,11 +732,37 @@ function miss(why) {
   return { text: null, status: 'unknown', source: null, path: '', notes: [why], branches: [] };
 }
 
+/**
+ * 构造「节点 #id 类名 + 尾巴」的结构化路径。
+ * 尾巴可以是字符串（节点类名/字段名等纯数据）或嵌套文案；由显示层拼接。
+ */
 function pathOf(node, tail) {
-  return `#${node.id} ${node.cls}${tail ? ' ' + tail : ''}`;
+  return m('pathNode', {
+    id: node.id,
+    cls: node.cls,
+    tail: tail ? m('pathTail', { tail }) : ''
+  });
 }
 
+/**
+ * 把多个结构化路径用指定分隔键连起来（分隔符本身也走词典，
+ * 所以英文/中文/其它语言可以各自决定连接符）。
+ * 返回 null 表示空列表，由调用方决定回退文案。
+ */
+function joinMsgs(list, sepKey) {
+  if (!list || !list.length) return null;
+  return list.reduce((acc, item) => (acc === null ? item : m('pathSep', {
+    left: acc,
+    right: item,
+    sep: { code: `core.${sepKey}`, params: {} }
+  })), null);
+}
+
+/**
+ * 文本预览（用户内容，不翻译）。
+ * 空内容返回空串，由显示层决定用什么占位文案。
+ */
 export function preview(text, n = 70) {
   const s = String(text ?? '').replace(/\s+/g, ' ').trim();
-  return s.length > n ? s.slice(0, n) + '…' : s || '(空)';
+  return s.length > n ? s.slice(0, n) + '…' : s;
 }

@@ -11,6 +11,8 @@ A **pure-frontend** ComfyUI sidebar extension: it read-only scans the prompts in
 - **Artist Strings** — each entry is the artist string itself; optionally attach a reference image from your output history and zoom it in a lightbox.
 - **LoRA Notes** — attach a note ("which spell works with this LoRA") to any LoRA; pick from your LoRA list when adding.
 
+**Languages:** the whole UI follows ComfyUI's own language setting — English and Simplified Chinese are built in, any other language falls back to English.
+
 No Python deps, no npm deps, no backend nodes, no new HTTP routes, no AI API calls, fully offline.
 
 ## Requirements
@@ -114,9 +116,27 @@ node web/tools/selftest_library.mjs   # ② favorites logic + panel interactions
 node web/tools/selftest_storage.mjs   # ③ persistence: hits real /userdata, temp dir only (needs ComfyUI running)
 node web/tools/selftest_artists.mjs   # ④ artist strings (in-memory)
 node web/tools/selftest_loras.mjs     # ⑤ LoRA notes (in-memory)
+node web/tools/selftest_i18n.mjs      # ⑥ i18n: dictionaries, fallbacks, locale switch, legacy data
+node web/tools/gen_locales.mjs --check # dictionary -> locales/*/main.json drift check
 ```
 
-316 assertions across the five suites (36+134+23+89+49). Interactions that depend on event bubbling can't be covered by the in-memory DOM shim — verify those in a real browser.
+434 assertions across the six suites (36+134+23+89+49+103). Interactions that depend on event bubbling can't be covered by the in-memory DOM shim — verify those in a real browser.
+
+## Language / localization
+
+The UI text is driven by `web/probe/i18n-en.mjs` + `web/probe/i18n-zh.mjs`, and follows the `Comfy.Locale` setting:
+
+| Setting | UI language |
+|---|---|
+| `en` | English |
+| `zh` / `zh-CN` / `zh-Hans` | 简体中文 |
+| anything else (`zh-TW`, `ja`, `fr`, …) | English (fallback) |
+
+- **No bare keys, ever.** Both dictionaries are bundled into the JS, so a 404 from `/api/i18n`, an offline backend, or a startup race can't leave `btn.save` on screen.
+- **`locales/en|zh/main.json` are generated** from those JS dictionaries and served by ComfyUI's `/api/i18n` under the `promptLibrary` namespace (needed because the backend merges every plugin's `main.json` into one tree). Never edit them by hand — run `node web/tools/gen_locales.mjs`; `--check` fails if they drift.
+- **Changing the dictionaries needs a ComfyUI restart** (the backend caches translations), but switching language at runtime does not.
+- **Probe output is language-neutral data.** `resolver.mjs` returns `{ code, params }` instead of sentences; the panel turns them into text. Adding a language never touches the parsing logic.
+- **Old favorites keep working.** Items saved before 0.5.0 store things like `role: "正向"` / `status_text: "已确认"`; they're mapped for display and never rewritten on disk.
 
 ## Uninstall
 

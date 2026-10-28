@@ -98,13 +98,13 @@ export const PRODUCERS = {
   'StringConcatenate (Advanced)': { kind: 'concat', parts: ['string_a', 'string_b'], delim: 'delimiter' },
   'ComfySwitchNode':          { kind: 'switch' },
   'GetNode':                  { kind: 'get' },
-  'TextGenerate':             { kind: 'runtime', why: '由 CLIP/LLM 在运行期生成' },
-  'QwenImage21PromptEnhancerT8': { kind: 'runtime', why: '由提示词增强节点在运行期生成' },
-  'QwenPERewriteT8':          { kind: 'runtime', why: '由提示词重写节点在运行期生成' },
-  'MiniMaxH3PromptEnhancerT8': { kind: 'runtime', why: '由提示词增强节点在运行期生成' },
-  'JsonExtractString':        { kind: 'runtime', why: '运行期从 JSON 中提取' },
-  'StringFormat':             { kind: 'runtime', why: '运行期格式化' },
-  'RegexExtract':             { kind: 'runtime', why: '运行期正则提取' }
+  'TextGenerate':             { kind: 'runtime', why: 'clipLlm' },
+  'QwenImage21PromptEnhancerT8': { kind: 'runtime', why: 'enhancer' },
+  'QwenPERewriteT8':          { kind: 'runtime', why: 'rewriter' },
+  'MiniMaxH3PromptEnhancerT8': { kind: 'runtime', why: 'enhancer' },
+  'JsonExtractString':        { kind: 'runtime', why: 'json' },
+  'StringFormat':             { kind: 'runtime', why: 'format' },
+  'RegexExtract':             { kind: 'runtime', why: 'regex' }
 };
 
 /** Set/Get 虚拟节点的类名（前端虚拟节点，不在 /object_info 里） */
@@ -136,15 +136,25 @@ export function producerRule(cls) {
   return PRODUCERS[cls] || null;
 }
 
-/** 检测动态提示符（通配符），命中时实际执行文本可能与字面不同 */
+/**
+ * 检测动态提示符（通配符），命中时实际执行文本可能与字面不同。
+ * 返回**结构化文案**（`{code, params}`），本文件不产出任何自然语言——翻译交给显示层。
+ */
 export function wildcardNote(text) {
   const s = String(text || '');
   const notes = [];
-  if (/\{[^{}\n]{1,200}\|[^{}\n]{0,200}\}/.test(s)) notes.push('含通配符 {a|b}，实际执行文本可能与显示不同');
-  if (/__[A-Za-z0-9_\-]{1,64}__/.test(s)) notes.push('含通配符 __name__，实际执行文本可能与显示不同');
-  if (/\[[^\[\]\n]{1,60}:[^\[\]\n]{1,20}\]/.test(s)) notes.push('含 (词:权重) 形式，属正常提示词权重语法');
+  if (/\{[^{}\n]{1,200}\|[^{}\n]{0,200}\}/.test(s)) notes.push({ code: 'core.wildcardBrace', params: {} });
+  if (/__[A-Za-z0-9_\-]{1,64}__/.test(s)) notes.push({ code: 'core.wildcardName', params: {} });
+  if (/\[[^\[\]\n]{1,60}:[^\[\]\n]{1,20}\]/.test(s)) notes.push({ code: 'core.wildcardWeight', params: {} });
   return notes;
 }
 
-/** 状态码 → 中文标签（面板与自测共用） */
-export const MODE_TEXT = { 0: '正常', 1: '按事件', 2: '静音(mute)', 4: '绕过(bypass)' };
+/**
+ * 节点 mode 数值 → 词典键。
+ * 只给**键**（`mode.<n>`），显示层用 `t()` 取词；未登记的模式返回 null 由调用方回退为数字。
+ */
+const MODE_KEYS = { 0: 'mode.0', 1: 'mode.1', 2: 'mode.2', 4: 'mode.4' };
+
+export function modeKey(mode) {
+  return Object.prototype.hasOwnProperty.call(MODE_KEYS, mode) ? MODE_KEYS[mode] : null;
+}

@@ -12,9 +12,11 @@
 import { createPanel } from './probe/panel.mjs';
 import { createLiveView, createJsonView } from './probe/graphview.mjs';
 import { scan } from './probe/resolver.mjs';
+import { t, initI18n, applyLocale, readAppLocale, onLocaleChange } from './probe/i18n.mjs';
 
 const NAME = 'ComfyUI-Prompt-Library · Prompt Probe';
-const VERSION = '0.4.5';
+const VERSION = '0.5.0';
+const TAB_ID = 'prompt-probe';
 const log = (...a) => console.log('[Prompt Probe]', ...a);
 const warn = (...a) => console.warn('[Prompt Probe]', ...a);
 
@@ -76,10 +78,10 @@ async function fetchObjectInfoFor(classes) {
  */
 async function scanWorkflowFile(name) {
   const api = window?.comfyAPI?.api?.api;
-  if (!api?.fetchApi) throw new Error('api.fetchApi 不可用');
+  if (!api?.fetchApi) throw new Error(t('err.apiUnavailable'));
   // /userdata/{file} 的 {file} 是单段路径：整条相对路径（含 /）必须一起编码
   const res = await api.fetchApi(`/userdata/${encodeURIComponent(`workflows/${name}`)}`);
-  if (!res.ok) throw new Error(`读取工作流失败：HTTP ${res.status}`);
+  if (!res.ok) throw new Error(t('err.readWorkflow', { status: res.status }));
   const workflow = await res.json();
   const oi = await fetchObjectInfoFor((workflow.nodes || []).map((n) => n.type));
   return scan(createJsonView(workflow, oi, { workflowName: name }));
@@ -103,13 +105,25 @@ function boot() {
           warn('当前前端不支持 extensionManager.registerSidebarTab，面板未注册');
           return;
         }
-        const panel = createPanel(app, { api: window.comfyAPI?.api?.api });
-        em.registerSidebarTab({
-          id: 'prompt-probe',
+        const panel = createPanel(app, { api: window.comfyAPI?.api?.api, version: VERSION });
+
+        /*
+         * 侧边栏标签文案策略（方案 A）：
+         *   1. 词典内置在代码里（en + zh），所以**注册前就能**拿到当前语言的文案，
+         *      不会出现裸露键名；
+         *   2. 注册后用 /api/i18n 的服务器译文精修（有超时，拿不到就用内置词典）；
+         *   3. 切换 `Comfy.Locale` 时同步更新标签 title/tooltip/label 并重渲染面板。
+         *      —— 不注销重注册（saved tab 的展开状态会丢），而是改 store 里的响应式对象。
+         */
+        try { applyLocale(readAppLocale(app)); } catch (e) { /* 读不到就保持英文 */ }
+
+        // 用可变对象注册，方便之后就地改文案（store 里是响应式的，赋值即刷新）
+        const tabDef = {
+          id: TAB_ID,
           icon: 'pi pi-search',
-          title: 'Prompt Library',
-          tooltip: 'Prompt Library · 提示词探针（只读）+ 本地收藏',
-          label: 'Prompt Library',
+          title: t('tab.title'),
+          tooltip: t('tab.tooltip'),
+          label: t('tab.label'),
           type: 'custom',
           render: (el) => {
             try {
@@ -126,7 +140,32 @@ function boot() {
               /* 忽略 */
             }
           }
-        });
+        };
+
+        em.registerSidebarTab(tabDef);
+
+        /** 语言切换后：更新侧边栏标签 + 让面板重新取词 */
+        const refreshTexts = () => {
+          try {
+            const label = t('tab.title');
+            const tooltip = t('tab.tooltip');
+            // 优先改 store 里的响应式对象（就地赋值会触发 Vue 重渲染）
+            const live = (typeof em.getSidebarTabs === 'function' ? em.getSidebarTabs() : [])
+              .find((x) => x && x.id === TAB_ID) || tabDef;
+            live.title = label;
+            live.tooltip = tooltip;
+            live.label = t('tab.label');
+            panel.refreshTexts?.();
+          } catch (e) {
+            warn('语言切换后刷新文案失败（不影响功能）', e);
+          }
+        };
+        onLocaleChange(refreshTexts);
+
+        // 后台拉取服务器译文（失败/404 都静默），拿到后再刷一次
+        initI18n({ api: window.comfyAPI?.api?.api, app })
+          .then((r) => { if (r?.ok) refreshTexts(); })
+          .catch(() => { /* 保持内置词典 */ });
 
         // 只读 + 收藏调试入口：便于自检，不参与界面渲染
         window.__promptProbe = {
@@ -153,7 +192,7 @@ function boot() {
           /* UI 专项：排版体检（只读测量，不发请求）—— 在真实侧边栏里跑一次即可验收 */
           auditLayout: () => panel.auditLayout()
         };
-        log(`已注册侧边栏标签「Prompt Library」v${VERSION}（提示词探针只读 + 本地收藏）`);
+        log(`sidebar tab「Prompt Library」v${VERSION} registered (read-only probe + local library)`);
       } catch (e) {
         warn('初始化失败（ComfyUI 不受影响）', e);
       }

@@ -230,6 +230,22 @@ curl -s http://127.0.0.1:8188/extensions | grep -i prompt-library
 
 ---
 
+## 多语言（v0.5）
+
+界面文案全部走 `web/probe/i18n-en.mjs` + `web/probe/i18n-zh.mjs`，跟随 ComfyUI 自己的语言设置：
+
+| ComfyUI 语言 | 插件界面 |
+|---|---|
+| `en` | English |
+| `zh` / `zh-CN` / `zh-Hans` | 简体中文 |
+| 其他（`zh-TW`、`ja`、`fr` …） | 英文（回退） |
+
+- **永不出现裸键名**：中英词典都内置在 JS 里，所以 `/api/i18n` 返回 404、后端断联、启动竞态都不会让 `btn.save` 露在界面上。
+- **`locales/en|zh/main.json` 是生成物**：由上面两份 JS 词典生成，运行时经 ComfyUI 的 `/api/i18n` 以 `promptLibrary` 命名空间下发（后端会把所有插件的 `main.json` 递归合并成一份，不加前缀会撞键）。**不要手改**，改词典后跑 `node web/tools/gen_locales.mjs`；`--check` 会在脱节时报错。
+- **改词典需要重启 ComfyUI**（后端有 `lru_cache` 缓存），但运行时切换语言不需要重启。
+- **探针结论是语言中立的数据**：`resolver.mjs` 只产出 `{ code, params }`，由显示层翻译，所以加语言不会动解析逻辑。
+- **老收藏照旧可用**：0.5.0 之前存的条目里是 `role: "正向"`、`status_text: "已确认"` 这类中文值，显示时映射、磁盘上永远不改写。
+
 ## 卸载
 
 1. 关闭 ComfyUI（启动器 → 停止）。
@@ -290,11 +306,15 @@ ComfyUI-Prompt-Library/
 
 ```bash
 node web/tools/selftest.mjs           # ① 解析核心：真实工作流只读解析（36 项断言）
-node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（125 项断言）
+node web/tools/selftest_library.mjs   # ② 收藏库逻辑 + 面板交互 + UI 结构：minidom + 假 api，不碰真实数据（134 项断言）
 node web/tools/selftest_storage.mjs   # ③ 持久化：打真实 /userdata，只写临时目录并在结束前清理（23 项断言）
-node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（85 项断言）
+node web/tools/selftest_artists.mjs   # ④ 画师串：内存假 api + canvas 垫片，不碰真实数据（89 项断言）
 node web/tools/selftest_loras.mjs     # ⑤ LoRA 提示词：内存假 api，不碰真实数据（49 项断言）
+node web/tools/selftest_i18n.mjs      # ⑥ 多语言：词典完整性、回退、语言切换、旧数据兼容、取值链渲染回归（103 项断言）
+node web/tools/gen_locales.mjs --check # 校验 locales/<lang>/main.json 没和 JS 词典脱节
 ```
+
+合计 434 项断言（36+134+23+89+49+103）。
 
 附加参数：
 

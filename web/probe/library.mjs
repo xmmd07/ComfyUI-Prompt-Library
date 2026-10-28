@@ -80,9 +80,10 @@ export function normalizeItem(raw) {
 /** 校验一条待保存的收藏；返回 {ok, errors:{title?,model?,text?}} */
 export function validateItem({ title, model, text }) {
   const errors = {};
-  if (!String(title ?? '').trim()) errors.title = '标题必填';
-  if (!String(model ?? '').trim()) errors.model = '请选择模型分类';
-  if (!String(text ?? '').trim()) errors.text = 'Prompt 内容不能为空';
+  // 校验错误返回稳定 code，显示层用 t() 取词（数据层不产出语言）
+  if (!String(title ?? '').trim()) errors.title = 'form.errTitle';
+  if (!String(model ?? '').trim()) errors.model = 'form.errModel';
+  if (!String(text ?? '').trim()) errors.text = 'form.errText';
   return { ok: Object.keys(errors).length === 0, errors };
 }
 

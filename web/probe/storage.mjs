@@ -15,6 +15,7 @@
  */
 
 import { emptyLibrary, normalizeLibrary, mergeLibraries, bumpRev } from './library.mjs';
+import { t } from './i18n.mjs';
 
 const DEFAULT_DIR = 'prompt_library';
 const FILE_MAIN = 'library.json';
@@ -38,36 +39,36 @@ export function makeFileStore(api, opts = {}) {
     url,
     async list(recursive = true) {
       const res = await api.fetchApi(`/userdata?dir=${encodeURIComponent(dir)}&recurse=${recursive}&full_info=true`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`列出 ${dir} 失败：HTTP ${res.status}`);
+      if (!res.ok) throw new Error(t('err.listFailed', { dir, status: res.status }));
       return await res.json();
     },
     async readText(name) {
       const res = await request(name);
       if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`读取 ${name} 失败：HTTP ${res.status}`);
+      if (!res.ok) throw new Error(t('err.readFailed', { name, status: res.status }));
       return await res.text();
     },
     async readBin(name) {
       const res = await request(name);
       if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`读取 ${name} 失败：HTTP ${res.status}`);
+      if (!res.ok) throw new Error(t('err.readFailed', { name, status: res.status }));
       return new Uint8Array(await res.arrayBuffer());
     },
     async writeText(name, text) {
       const res = await request(name, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text });
-      if (!res.ok) throw new Error(`写入 ${name} 失败：HTTP ${res.status}`);
+      if (!res.ok) throw new Error(t('err.writeFailed', { name, status: res.status }));
       return true;
     },
     /** 写二进制（图片副本）。userdata 目录不存在时后端会自动创建。 */
     async writeBin(name, bytes, contentType = 'image/webp') {
       const res = await request(name, { method: 'POST', headers: { 'Content-Type': contentType }, body: bytes });
-      if (!res.ok) throw new Error(`写入 ${name} 失败：HTTP ${res.status}`);
+      if (!res.ok) throw new Error(t('err.writeFailed', { name, status: res.status }));
       return true;
     },
     async remove(name) {
       const res = await request(name, { method: 'DELETE' });
       if (res.status === 404) return false;
-      if (!res.ok) throw new Error(`删除 ${name} 失败：HTTP ${res.status}`);
+      if (!res.ok) throw new Error(t('err.removeFailed', { name, status: res.status }));
       return true;
     }
   };
@@ -83,7 +84,7 @@ export function makeStorage(api, opts = {}) {
   async function readRaw(name) {
     const res = await api.fetchApi(url(name), { cache: 'no-store' });
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`读取 ${name} 失败：HTTP ${res.status}`);
+    if (!res.ok) throw new Error(t('err.readFailed', { name, status: res.status }));
     return await res.text();
   }
 
@@ -93,7 +94,7 @@ export function makeStorage(api, opts = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: text
     });
-    if (!res.ok) throw new Error(`写入 ${name} 失败：HTTP ${res.status} ${await safeText(res)}`);
+    if (!res.ok) throw new Error(t('err.writeFailed', { name, status: `${res.status} ${await safeText(res)}` }));
     return true;
   }
 
@@ -135,7 +136,7 @@ export function makeStorage(api, opts = {}) {
       const parsed = JSON.parse(raw);
       return { state: 'ok', library: normalizeLibrary(parsed), raw };
     } catch (e) {
-      return { state: 'corrupt', raw, error: `收藏库文件不是合法 JSON：${e.message}` };
+      return { state: 'corrupt', raw, error: t('err.libraryBadJson', { error: e.message }) };
     }
   }
 
@@ -162,7 +163,7 @@ export function makeStorage(api, opts = {}) {
       // 1b) 磁盘文件损坏时**拒绝写入**，避免把用户数据覆盖掉
       //     （界面会提供"导出原始内容 / 另存损坏文件并重建空库"两个用户确认的操作）
       if (diskRaw && diskRaw.trim() && !diskParsed) {
-        throw new Error('磁盘上的收藏库文件不是合法 JSON，为避免覆盖已停止写入；请先用面板上的「导出原始内容」或「另存损坏文件并重建空库」处理');
+        throw new Error(t('err.libraryDiskBad'));
       }
 
       // 2) 磁盘更新则合并，避免覆盖别的标签页刚写的内容

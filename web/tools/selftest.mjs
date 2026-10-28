@@ -17,6 +17,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createJsonView } from '../probe/graphview.mjs';
 import { scan } from '../probe/resolver.mjs';
+import { fmt, setLocaleForTest } from '../probe/i18n.mjs';
+
+// 解析核心产出的是结构化文案（{code, params}），断言前用 fmt() 渲染成文字。
+// 固定中文，保持与改造前断言口径一致；英文/切换/回退由 selftest_i18n.mjs 覆盖。
+setLocaleForTest('zh');
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -61,11 +66,12 @@ function analyze(file, oi) {
   return { wf, view, result: scan(view) };
 }
 
-const posOf = (chain) => chain.fields.find((f) => f.role === '正向') || chain.fields[0];
+// role 现在是稳定内部标识（positive / negative / extra），不再用中文
+const posOf = (chain) => chain.fields.find((f) => f.role === 'positive') || chain.fields[0];
 const brief = (chain) =>
   `链 ${chain.sampler.cls} #${chain.sampler.id}${chain.sampler.group ? `【${chain.sampler.group}】` : ''} → ` +
   `目标 ${chain.target ? `${chain.target.cls} #${chain.target.id}${chain.target.collapsed ? '(已折叠)' : ''}` : '未找到'} | ` +
-  `${posOf(chain)?.statusText || '?'} ${posOf(chain)?.length ?? 0} 字 | 状态 ${chain.sampler.modeText}`;
+  `${fmt(posOf(chain)?.statusText) || '?'} ${posOf(chain)?.length ?? 0} 字 | 状态 ${fmt(chain.sampler.modeText)}`;
 
 /* ------------------------------------------------------------------ */
 
@@ -88,7 +94,7 @@ async function main() {
       check('正向文本包含 WeiLin 节点的正提示词段', pos.text?.includes('1girl, solo, grey gradient hair'));
       check('没有把折叠节点里的残留旧文本当作结果', !(pos.text || '').includes('@96yottea'));
       check('已检出"控件残留旧文本"并给出提示', pos.staleWidget === true, `staleLen=${pos.staleLen}`);
-      check('取值链能追到上游字符串节点', /JoinStringMulti/.test(pos.path || ''), pos.path?.slice(0, 120));
+      check('取值链能追到上游字符串节点', /JoinStringMulti/.test(fmt(pos.path)), fmt(pos.path).slice(0, 120));
     }
   }
 
@@ -106,14 +112,14 @@ async function main() {
       //（重绘手部的英文 prompt）。这里只验证"从控件名 prompt 读到非空正向文本"，
       // 不再绑定具体内容；negative_prompt 的取值同理只验证"读到了且不是正向内容"。
       check('按控件名 prompt 读到正向文本', typeof pos.text === 'string' && pos.text.trim().length > 20, `len=${pos.length}`);
-      check('正向状态为「已确认」', pos.status === 'confirmed', pos.statusText);
+      check('正向状态为「已确认」', pos.status === 'confirmed', fmt(pos.statusText));
       check('从控件直读（非连线）', pos.fromLink === false);
       const neg = chain.fields.find((f) => f.name === 'negative_prompt');
       // 工作流 2026-10-10 编辑后负向控件可能为空——空是合法状态；只要求"读到了字段且内容 ≠ 正向"
       check('negative_prompt 未被误当成 prompt', (neg == null || !String(neg.text || '').trim() || !pos.text.includes(String(neg.text))), `neg=${(neg?.text || '').slice(0, 20)}`);
     }
     if (result.candidates.length) {
-      result.candidates.forEach((c) => console.log(`  候选：#${c.id} ${c.cls} ${c.status} ${c.length} 字（${c.modeText}）`));
+      result.candidates.forEach((c) => console.log(`  候选：#${c.id} ${c.cls} ${c.status} ${c.length} 字（${fmt(c.modeText)}）`));
     }
   }
 
@@ -127,10 +133,10 @@ async function main() {
     check('经 guider→conditioning 找到 TextEncodeQwenImage21', !!chain);
     if (chain) {
       const pos = posOf(chain);
-      const noteText = (pos.notes || []).join(' | ');
+      const noteText = (pos.notes || []).map(fmt).join(' | ');
       console.log(`     分支数=${pos.branches?.length || 0}`);
       (pos.branches || []).forEach((b) => console.log(`       ${b.slot}: ${b.length} 字 ${b.active === true ? '(生效)' : b.active === false ? '(未生效)' : ''} — ${b.preview}`));
-      check('开关由 PrimitiveBoolean 连线提供 → 静态判定为「取 on_true」', /PrimitiveBoolean/.test(noteText), (pos.notes || [])[0]);
+      check('开关由 PrimitiveBoolean 连线提供 → 静态判定为「取 on_true」', /PrimitiveBoolean/.test(noteText), fmt((pos.notes || [])[0]));
       check('生效分支本身是运行期节点 → 结论为候选/无法确认，而不是静默给一个假文本',
         ['candidate', 'unknown', 'runtime'].includes(pos.status), `status=${pos.status} text=${JSON.stringify((pos.text || '').slice(0, 40))}`);
       check('两个分支都列出供人工核对', (pos.branches?.length || 0) >= 2, `branches=${pos.branches?.length || 0}`);
@@ -158,7 +164,7 @@ async function main() {
     console.log(`采样链数：${result.chains.length} · 候选文本：${result.candidates.length}`);
     result.chains.forEach((c) => {
       console.log('  ' + brief(c));
-      console.log(`     取值链：${(posOf(c).path || '').slice(0, 160)}`);
+      console.log(`     取值链：${fmt(posOf(c).path).slice(0, 160)}`);
     });
     check('检出多条采样链（基础采样 + 双采样）', result.chains.length >= 2, `chains=${result.chains.length}`);
 
@@ -171,7 +177,7 @@ async function main() {
     check('残留旧文本已被检出并标注', result.chains.some((c) => posOf(c).staleWidget === true));
     const bypassed = result.chains.filter((c) => c.sampler.bypassed || c.target?.bypassed);
     check('被绕过的采样链已标注状态', bypassed.length >= 1, `${bypassed.length} 条被绕过`);
-    check('取值链中可见 GetNode/SetNode', result.chains.every((c) => /GetNode|SetNode/.test(posOf(c).path || '')));
+    check('取值链中可见 GetNode/SetNode', result.chains.every((c) => /GetNode|SetNode/.test(fmt(posOf(c).path))));
     const cand = result.candidates.map((c) => c.id);
     console.log(`  候选文本节点：${cand.length ? cand.map((i) => '#' + i).join(', ') : '无'}`);
     check('游离的 CLIPTextEncode（#354）被归为候选而非有效 Prompt', cand.includes(354) || cand.includes('354'));

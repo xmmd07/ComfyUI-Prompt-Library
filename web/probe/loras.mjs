@@ -12,6 +12,7 @@
  */
 
 import { h, confirmDialog, copyToClipboard, copyButtonFor } from './favorites.mjs';
+import { t } from './i18n.mjs';
 
 /* ===================== 数据模型 ===================== */
 
@@ -22,8 +23,8 @@ export function emptyLoras() {
 /** 单条记录校验：LoRA 名和提示词都必填 */
 export function validateLora(item) {
   const errors = {};
-  if (!item || !String(item.lora || '').trim()) errors.lora = '请选择一个 LoRA';
-  if (!item || !String(item.prompt || '').trim()) errors.prompt = '提示词不能为空';
+  if (!item || !String(item.lora || '').trim()) errors.lora = 'form.errLora';
+  if (!item || !String(item.prompt || '').trim()) errors.prompt = 'form.errPrompt';
   return { ok: !Object.keys(errors).length, errors };
 }
 
@@ -92,9 +93,9 @@ export function loraBasename(p) {
  */
 export async function fetchModelList(api, folder) {
   const res = await api.fetchApi(`/models/${encodeURIComponent(folder)}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`读取模型列表失败：HTTP ${res.status}`);
+  if (!res.ok) throw new Error(t('err.readModelList', { status: res.status }));
   const j = await res.json();
-  if (!Array.isArray(j)) throw new Error('模型列表格式异常（非数组）');
+  if (!Array.isArray(j)) throw new Error(t('err.modelListShape'));
   const out = [];
   for (const it of j) {
     if (typeof it === 'string' && it.trim()) out.push(it);
@@ -116,15 +117,17 @@ export const fetchLoraList = (api) => fetchModelList(api, 'loras');
  * 模型选择弹层（LoRA / diffusion_models 通用，带过滤框，点击一条即选中并关闭）。
  * @param {object} o {host, api, folder, onPick(path), onCancel?, title?}
  */
-export function openModelPicker({ host, api, folder = 'loras', onPick, onCancel, title = '选择 LoRA' }) {
+export function openModelPicker({ host, api, folder = 'loras', onPick, onCancel, title = null }) {
+  // 默认标题在调用时取词（不写进默认参数，避免语言在模块加载期被冻结）
+  title = title || t('lora.pickerTitle');
   const ov = h('div', { class: 'pp-overlay' });
   host.appendChild(ov);
   const close = () => { ov.remove(); };
-  const cancelBtn = h('button', { class: 'pp-btn', text: '取消', onclick: () => { close(); onCancel?.(); } });
+  const cancelBtn = h('button', { class: 'pp-btn', text: t('btn.cancel'), onclick: () => { close(); onCancel?.(); } });
 
   const listWrap = h('div', { class: 'pp-lora-list' });
-  const status = h('div', { class: 'pp-hint', text: '正在读取列表…' });
-  const filterInput = h('input', { class: 'pp-input', placeholder: '输入关键字过滤…' });
+  const status = h('div', { class: 'pp-hint', text: t('lora.readingList') });
+  const filterInput = h('input', { class: 'pp-input', placeholder: t('lora.filterPlaceholder') });
 
   let all = [];
   const renderList = () => {
@@ -132,7 +135,7 @@ export function openModelPicker({ host, api, folder = 'loras', onPick, onCancel,
     listWrap.textContent = '';
     const shown = kw ? all.filter((p) => p.toLowerCase().includes(kw)) : all;
     if (!shown.length) {
-      listWrap.appendChild(h('div', { class: 'pp-empty', text: kw ? '没有匹配的模型' : '（列表为空）' }));
+      listWrap.appendChild(h('div', { class: 'pp-empty', text: kw ? t('empty.noMatchModels') : t('empty.listEmpty') }));
       return;
     }
     for (const p of shown) {
@@ -158,7 +161,7 @@ export function openModelPicker({ host, api, folder = 'loras', onPick, onCancel,
   (async () => {
     try {
       all = await fetchModelList(api, folder);
-      status.textContent = `共 ${all.length} 个`;
+      status.textContent = t('meta.modelCount', { n: all.length });
       renderList();
     } catch (e) {
       status.textContent = String(e.message || e);
@@ -168,7 +171,7 @@ export function openModelPicker({ host, api, folder = 'loras', onPick, onCancel,
 
 /** LoRA 选择弹层 = openModelPicker('loras') */
 export function openLoraPicker({ host, api, onPick, onCancel }) {
-  return openModelPicker({ host, api, folder: 'loras', onPick, onCancel, title: '选择 LoRA' });
+  return openModelPicker({ host, api, folder: 'loras', onPick, onCancel, title: t('lora.pickerTitle') });
 }
 
 function loraDirname(p) {
@@ -194,19 +197,19 @@ export function openLoraEditor({ host, mode = 'create', item = {}, onSave, onCan
   const close = () => { ov.remove(); onCancel?.(); };
 
   const errEl = h('div', { class: 'pp-dlg-errors' });
-  const loraShown = h('div', { class: 'pp-lib-title', text: item.lora ? loraBasename(item.lora) : '（未选择）' });
+  const loraShown = h('div', { class: 'pp-lib-title', text: item.lora ? loraBasename(item.lora) : t('lora.notChosen') });
   loraShown.title = item.lora || '';
-  const promptArea = h('textarea', { class: 'pp-input pp-textarea', rows: '6', placeholder: '这个 LoRA 适合配的提示词，保存后可一键复制' });
+  const promptArea = h('textarea', { class: 'pp-input pp-textarea', rows: '6', placeholder: t('ph.loraPrompt') });
   promptArea.value = item.prompt || '';
   const lenEl = h('span', { class: 'pp-len' });
-  const refreshLen = () => { lenEl.textContent = `${String(promptArea.value || '').length} 字`; };
+  const refreshLen = () => { lenEl.textContent = t('meta.chars', { n: String(promptArea.value || '').length }); };
   promptArea.addEventListener('input', refreshLen);
   refreshLen();
 
   let lora = item.lora || null;
   const pickBtn = h('button', {
     class: 'pp-btn pp-btn-mini',
-    text: isEdit ? '换 LoRA…' : '选择 LoRA…',
+    text: isEdit ? t('btn.changeLora') : t('btn.pickLora'),
     onclick: () => {
       if (!api) return;
       openLoraPicker({
@@ -217,30 +220,30 @@ export function openLoraEditor({ host, mode = 'create', item = {}, onSave, onCan
     }
   });
 
-  const saveBtn = h('button', { class: 'pp-btn pp-primary', text: isEdit ? '保存修改' : '保存' });
+  const saveBtn = h('button', { class: 'pp-btn pp-primary', text: isEdit ? t('btn.saveEdit') : t('btn.save') });
   saveBtn.addEventListener('click', async () => {
     errEl.textContent = '';
-    if (!lora) { errEl.textContent = '请选择一个 LoRA'; return; }
+    if (!lora) { errEl.textContent = t('form.errLora'); return; }
     const check = validateLora({ lora, prompt: promptArea.value });
-    if (!check.ok) { errEl.textContent = Object.values(check.errors).join('；'); return; }
+    if (!check.ok) { errEl.textContent = Object.values(check.errors).map((c) => t(c)).join(t('meta.listSep')); return; }
     saveBtn.disabled = true;
-    saveBtn.textContent = '保存中…';
+    saveBtn.textContent = t('btn.saving');
     try {
       const r = await onSave({ id: item.id, lora, prompt: promptArea.value });
       if (r && r.ok) { close(); return; }
-      errEl.textContent = (r && r.error) || '保存失败';
+      errEl.textContent = (r && r.error) || t('err.saveFailedBare');
     } catch (e) {
       errEl.textContent = String(e.message || e);
     }
     saveBtn.disabled = false;
-    saveBtn.textContent = isEdit ? '保存修改' : '保存';
+    saveBtn.textContent = isEdit ? t('btn.saveEdit') : t('btn.save');
   });
 
-  const noBtn = h('button', { class: 'pp-btn', text: '取消', onclick: close });
+  const noBtn = h('button', { class: 'pp-btn', text: t('btn.cancel'), onclick: close });
   ov.appendChild(h('div', { class: 'pp-dlg' }, [
-    h('div', { class: 'pp-dlg-h', text: isEdit ? '编辑 LoRA 提示词' : '添加 LoRA 提示词' }),
+    h('div', { class: 'pp-dlg-h', text: isEdit ? t('dlg.editLora') : t('dlg.newLora') }),
     errEl,
-    h('div', { class: 'pp-row' }, [h('span', { class: 'pp-len', text: 'LoRA：' }), loraShown, h('span', { style: 'flex:1' }), pickBtn]),
+    h('div', { class: 'pp-row' }, [h('span', { class: 'pp-len', text: t('lora.label') }), loraShown, h('span', { style: 'flex:1' }), pickBtn]),
     promptArea,
     h('div', { class: 'pp-row' }, [lenEl]),
     h('div', { class: 'pp-dlg-actions' }, [noBtn, saveBtn])
@@ -256,8 +259,8 @@ export function renderLorasView(o) {
   const { data, notice = null, toolbarSlot = null, handlers = {}, onUsed = null } = o;
 
   const toolbar = h('div', { class: 'pp-lib-toolbar pp-row' }, [
-    h('button', { class: 'pp-btn pp-btn-mini', text: '＋ 添加 LoRA 提示词', onclick: () => handlers.onAdd?.() }),
-    h('button', { class: 'pp-btn pp-btn-mini', text: '刷新', onclick: () => handlers.onReload?.() })
+    h('button', { class: 'pp-btn pp-btn-mini', text: t('btn.addLora'), onclick: () => handlers.onAdd?.() }),
+    h('button', { class: 'pp-btn pp-btn-mini', text: t('btn.refresh'), onclick: () => handlers.onReload?.() })
   ]);
 
   const kids = [];
@@ -271,10 +274,10 @@ export function renderLorasView(o) {
   }
 
   const total = data?.items?.length || 0;
-  kids.push(h('div', { class: 'pp-sum-line' }, [h('span', { text: `共 ${total} 条 LoRA 提示词` })]));
+  kids.push(h('div', { class: 'pp-sum-line' }, [h('span', { text: t('meta.loraCount', { n: total }) })]));
 
   if (!total) {
-    kids.push(h('div', { class: 'pp-empty', text: total ? '没有记录' : '还没有记录。点上方「＋ 添加 LoRA 提示词」，选一个 LoRA 并写下它的提示词。' }));
+    kids.push(h('div', { class: 'pp-empty', text: total ? t('empty.lorasFiltered') : t('empty.lorasNone') }));
     return h('div', { class: 'pp-lora-page' }, kids);
   }
 
@@ -283,17 +286,17 @@ export function renderLorasView(o) {
       h('div', { class: 'pp-lib-title pp-clamp', text: loraBasename(it.lora), title: it.lora }),
       h('div', { class: 'pp-lora-prompt pp-clamp3', text: it.prompt, title: it.prompt }),
       h('div', { class: 'pp-lib-meta' }, [
-        h('span', { class: 'pp-len', text: `${String(it.prompt || '').length} 字` }),
+        h('span', { class: 'pp-len', text: t('meta.chars', { n: String(it.prompt || '').length }) }),
         (Number(it.use_count) || 0) > 0
-          ? h('span', { class: 'pp-len', title: it.last_used_at ? `最近使用 ${it.last_used_at.slice(0, 16).replace('T', ' ')}` : '', text: `用了 ${it.use_count} 次` })
+          ? h('span', { class: 'pp-len', title: it.last_used_at ? t('meta.usedTitle', { time: it.last_used_at.slice(0, 16).replace('T', ' ') }) : '', text: t('meta.used', { n: it.use_count }) })
           : null,
-        h('span', { class: 'pp-len', text: `收藏于 ${(it.created_at || '').slice(0, 10)}` })
+        h('span', { class: 'pp-len', text: t('meta.savedOn', { date: (it.created_at || '').slice(0, 10) }) })
       ]),
       h('div', { class: 'pp-lib-item-actions' }, [
-        copyButtonFor(() => it.prompt, '复制提示词', () => { if (onUsed) onUsed(it.id); }),
-        copyButtonFor(() => it.lora, '复制 LoRA 名', () => { if (onUsed) onUsed(it.id); }),
-        h('button', { class: 'pp-btn pp-btn-mini', text: '编辑', onclick: () => handlers.onEdit?.(it) }),
-        h('button', { class: 'pp-btn pp-btn-mini pp-danger', text: '删除', onclick: () => handlers.onDelete?.(it) })
+        copyButtonFor(() => it.prompt, t('btn.copyPrompt'), () => { if (onUsed) onUsed(it.id); }),
+        copyButtonFor(() => it.lora, t('btn.copyLoraName'), () => { if (onUsed) onUsed(it.id); }),
+        h('button', { class: 'pp-btn pp-btn-mini', text: t('btn.edit'), onclick: () => handlers.onEdit?.(it) }),
+        h('button', { class: 'pp-btn pp-btn-mini pp-danger', text: t('btn.delete'), onclick: () => handlers.onDelete?.(it) })
       ])
     ]));
   }

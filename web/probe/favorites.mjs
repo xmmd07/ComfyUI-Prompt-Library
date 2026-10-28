@@ -8,10 +8,14 @@
  */
 
 import { fmtTime } from './library.mjs';
-import { STATUS_TEXT } from './resolver.mjs';
+import { t } from './i18n.mjs';
 
-const STATUS_TEXT_FALLBACK = { confirmed: '已确认', partial: '部分确认', candidate: '候选文本', runtime: '运行时生成', unknown: '无法确认' };
-const statusTextOf = (s) => STATUS_TEXT[s] || STATUS_TEXT_FALLBACK[s] || s;
+/** 状态码 → 界面文案（`status` 是稳定内部标识，永不翻译） */
+const statusTextOf = (s) => (s ? t(`status.${s}`) : t('status.notRecorded'));
+
+/** 旧数据里 role 存的是中文，这里做兼容映射（不改写用户数据） */
+const LEGACY_ROLE = { '正向': 'positive', '负向': 'negative', '附加': 'extra', '候选': 'candidate' };
+const roleTextOf = (r) => (r ? t(`role.${LEGACY_ROLE[r] || r}`) : '');
 
 const BADGE_CLASS = {
   confirmed: 'pp-badge-ok',
@@ -70,11 +74,12 @@ export async function copyToClipboard(text) {
   }
 }
 
-function copyButton(text, label = '复制') {
+function copyButton(text, label = null) {
+  label = label || t('btn.copy');
   const b = h('button', { class: 'pp-btn pp-btn-mini pp-copy', text: label });
   b.addEventListener('click', async () => {
     const ok = await copyToClipboard(text);
-    b.textContent = ok ? '已复制 ✓' : '复制失败';
+    b.textContent = ok ? t('notice.copied') : t('notice.copyFailed');
     setTimeout(() => { b.textContent = label; }, 1200);
   });
   return b;
@@ -82,7 +87,7 @@ function copyButton(text, label = '复制') {
 
 /** 收藏条目的复制按钮：成功后回调 onUsed（使用频率计数用） */
 export function useCountingCopy(it, onUsed = null) {
-  const b = copyButton(it.text, '复制');
+  const b = copyButton(it.text, t('btn.copy'));
   if (onUsed) b.addEventListener('click', () => onUsed(it.id));
   return b;
 }
@@ -92,7 +97,7 @@ export function copyButtonFor(getText, label, onUsed = null) {
   const b = h('button', { class: 'pp-btn pp-btn-mini pp-copy', text: label });
   b.addEventListener('click', async () => {
     const ok = await copyToClipboard(getText());
-    b.textContent = ok ? '已复制 ✓' : '复制失败';
+    b.textContent = ok ? t('notice.copied') : t('notice.copyFailed');
     setTimeout(() => { b.textContent = label; }, 1200);
     if (ok && onUsed) onUsed();
   });
@@ -124,14 +129,14 @@ export function openItemEditor({ host, mode = 'create', item = {}, models = [], 
   const ov = overlay(host);
   const errEl = h('div', { class: 'pp-dlg-errors' });
 
-  const titleInput = h('input', { class: 'pp-input', type: 'text', value: item.title || '', placeholder: '给这条 Prompt 起个标题（必填）' });
+  const titleInput = h('input', { class: 'pp-input', type: 'text', value: item.title || '', placeholder: t('ph.title') });
   const modelSelect = h('select', { class: 'pp-input' });
   const seen = [...new Set(models.filter(Boolean))];
   for (const m of seen) modelSelect.appendChild(h('option', { value: m, text: m }));
   if (!seen.length) modelSelect.appendChild(h('option', { value: 'Anima', text: 'Anima' }));
-  modelSelect.appendChild(h('option', { value: '__new__', text: '＋ 新增模型分类…' }));
+  modelSelect.appendChild(h('option', { value: '__new__', text: t('ph.newModelOption', { hint: t('ph.newModelHint') }) }));
   modelSelect.value = item.model && seen.includes(item.model) ? item.model : seen[0];
-  const newModelInput = h('input', { class: 'pp-input', type: 'text', placeholder: '新分类名称（必填）' });
+  const newModelInput = h('input', { class: 'pp-input', type: 'text', placeholder: t('ph.newModel') });
   newModelInput.style.display = 'none';
   modelSelect.addEventListener('change', () => {
     newModelInput.style.display = modelSelect.value === '__new__' ? '' : 'none';
@@ -141,17 +146,19 @@ export function openItemEditor({ host, mode = 'create', item = {}, models = [], 
   textArea.value = item.text || '';
 
   const lenEl = h('span', { class: 'pp-len' });
-  const refreshLen = () => { lenEl.textContent = `${String(textArea.value || '').length} 字`; };
+  const refreshLen = () => { lenEl.textContent = t('meta.chars', { n: String(textArea.value || '').length }); };
   textArea.addEventListener('input', refreshLen);
   refreshLen();
 
   const src = item.source || {};
   const srcLine = src.node_class
-    ? `来源：${src.workflow || '（未命名工作流）'} · ${src.node_class} #${src.node_id ?? '?'}${src.role ? ` · ${src.role}` : ''}`
-    : '来源：（手动录入）';
+    ? t('src.line', {
+      src: `${src.workflow || t('src.unnamedWorkflow')} · ${src.node_class} #${src.node_id ?? '?'}${src.role ? ` · ${roleTextOf(src.role)}` : ''}`
+    })
+    : t('src.manual');
 
-  const saveBtn = h('button', { class: 'pp-btn pp-primary', text: isEdit ? '保存修改' : '保存' });
-  const cancelBtn = h('button', { class: 'pp-btn', text: '取消' });
+  const saveBtn = h('button', { class: 'pp-btn pp-primary', text: isEdit ? t('btn.saveEdit') : t('btn.save') });
+  const cancelBtn = h('button', { class: 'pp-btn', text: t('btn.cancel') });
 
   saveBtn.addEventListener('click', async () => {
     errEl.textContent = '';
@@ -166,23 +173,24 @@ export function openItemEditor({ host, mode = 'create', item = {}, models = [], 
       created_at: item.created_at
     };
     const errors = {};
-    if (!draft.title) errors.title = '标题必填';
-    if (!draft.model) errors.model = '请选择或填写模型分类';
-    if (!draft.text.trim()) errors.text = 'Prompt 内容不能为空';
+    // 校验错误是稳定 code，显示时才取词（数据层不产出语言）
+    if (!draft.title) errors.title = 'form.errTitle';
+    if (!draft.model) errors.model = 'form.errModel';
+    if (!draft.text.trim()) errors.text = 'form.errText';
     if (Object.keys(errors).length) {
-      errEl.appendChild(h('div', { class: 'pp-warn', text: '请先修正：' }));
-      for (const v of Object.values(errors)) errEl.appendChild(h('div', { class: 'pp-warn', text: `· ${v}` }));
+      errEl.appendChild(h('div', { class: 'pp-warn', text: t('form.fixFirst') }));
+      for (const v of Object.values(errors)) errEl.appendChild(h('div', { class: 'pp-warn', text: `· ${t(v)}` }));
       return;
     }
     try {
       const r = await onSave(draft);
       if (r && r.ok === false) {
-        errEl.appendChild(h('div', { class: 'pp-warn', text: `保存失败：${r.error || '未知错误'}` }));
+        errEl.appendChild(h('div', { class: 'pp-warn', text: t('err.saveFailed', { error: r.error || t('err.unknownError') }) }));
         return;
       }
       ov.close();
     } catch (e) {
-      errEl.appendChild(h('div', { class: 'pp-warn', text: `保存失败：${e?.message || e}` }));
+      errEl.appendChild(h('div', { class: 'pp-warn', text: t('err.saveFailed', { error: e?.message || e }) }));
     }
   });
 
@@ -192,15 +200,15 @@ export function openItemEditor({ host, mode = 'create', item = {}, models = [], 
   });
 
   const card = h('div', { class: 'pp-dlg' }, [
-    h('div', { class: 'pp-dlg-h', text: isEdit ? '编辑收藏' : '收藏 Prompt' }),
+    h('div', { class: 'pp-dlg-h', text: isEdit ? t('dlg.editFavorite') : t('dlg.newFavorite') }),
     warning ? h('div', { class: 'pp-dlg-warn', text: `⚠ ${warning}` }) : null,
-    h('div', { class: 'pp-dlg-field' }, [h('label', { class: 'pp-label', text: '标题（必填）' }), titleInput]),
+    h('div', { class: 'pp-dlg-field' }, [h('label', { class: 'pp-label', text: t('lbl.titleRequired') }), titleInput]),
     h('div', { class: 'pp-dlg-field' }, [
-      h('label', { class: 'pp-label', text: '模型分类（必填）' }),
+      h('label', { class: 'pp-label', text: t('lbl.modelRequired') }),
       h('div', { class: 'pp-row' }, [modelSelect, newModelInput])
     ]),
     h('div', { class: 'pp-dlg-field' }, [
-      h('div', { class: 'pp-row pp-row-between' }, [h('label', { class: 'pp-label', text: 'Prompt 内容（可编辑）' }), lenEl]),
+      h('div', { class: 'pp-row pp-row-between' }, [h('label', { class: 'pp-label', text: t('lbl.promptEditable') }), lenEl]),
       textArea
     ]),
     h('div', { class: 'pp-hint', text: srcLine }),
@@ -215,10 +223,11 @@ export function openItemEditor({ host, mode = 'create', item = {}, models = [], 
 /* ------------------------------------------------------------------ *
  * 2) 二次确认
  * ------------------------------------------------------------------ */
-export function confirmDialog({ host, title, message, confirmLabel = '确认删除', onConfirm, onCancel }) {
+export function confirmDialog({ host, title, message, confirmLabel = null, onConfirm, onCancel }) {
   const ov = overlay(host);
-  const ok = h('button', { class: 'pp-btn pp-danger', text: confirmLabel });
-  const no = h('button', { class: 'pp-btn', text: '取消' });
+  // 默认文案在调用时取词（不写进默认参数，避免语言在模块加载期被冻结）
+  const ok = h('button', { class: 'pp-btn pp-danger', text: confirmLabel || t('btn.confirmDelete') });
+  const no = h('button', { class: 'pp-btn', text: t('btn.cancel') });
   ok.addEventListener('click', async () => {
     ov.close();
     await onConfirm?.();
@@ -228,7 +237,7 @@ export function confirmDialog({ host, title, message, confirmLabel = '确认删�
     onCancel?.();
   });
   ov.wrap.appendChild(h('div', { class: 'pp-dlg pp-dlg-sm' }, [
-    h('div', { class: 'pp-dlg-h', text: title || '确认操作' }),
+    h('div', { class: 'pp-dlg-h', text: title || t('dlg.confirm') }),
     h('div', { class: 'pp-dlg-msg', text: message || '' }),
     h('div', { class: 'pp-dlg-actions' }, [no, ok])
   ]));
@@ -262,11 +271,11 @@ export function renderLibraryView(o) {
   const { library, query = '', model = '', items = [], handlers = {}, notice = null, expanded, toolbarSlot = null, sort = 'recent' } = o;
 
   /* ---- 工具条：搜索 → 模型筛选 → 刷新 / 导出 ---- */
-  const searchInput = h('input', { class: 'pp-input pp-lib-search', type: 'text', value: query, placeholder: '按标题搜索…' });
+  const searchInput = h('input', { class: 'pp-input pp-lib-search', type: 'text', value: query, placeholder: t('ph.searchByTitle') });
   searchInput.addEventListener('input', () => handlers.onQuery?.(searchInput.value));
 
   const modelSelect = h('select', { class: 'pp-input' });
-  modelSelect.appendChild(h('option', { value: '', text: '全部模型' }));
+  modelSelect.appendChild(h('option', { value: '', text: t('filter.allModels') }));
   for (const m of library?.models || []) modelSelect.appendChild(h('option', { value: m, text: m }));
   modelSelect.value = model;
   modelSelect.addEventListener('change', () => handlers.onModel?.(modelSelect.value));
@@ -275,12 +284,12 @@ export function renderLibraryView(o) {
     searchInput,
     modelSelect,
     h('select', { class: 'pp-input pp-lib-sort' }, [
-      h('option', { value: 'recent', text: '最新在前' }),
-      h('option', { value: 'used', text: '最常用' })
+      h('option', { value: 'recent', text: t('sort.recent') }),
+      h('option', { value: 'used', text: t('sort.used') })
     ]),
-    h('button', { class: 'pp-btn pp-btn-mini', text: '刷新', onclick: () => handlers.onReload?.() }),
-    h('button', { class: 'pp-btn pp-btn-mini', text: '导入', onclick: () => handlers.onImport?.() }),
-    h('button', { class: 'pp-btn pp-btn-mini', text: '导出', onclick: () => handlers.onExport?.() })
+    h('button', { class: 'pp-btn pp-btn-mini', text: t('btn.refresh'), onclick: () => handlers.onReload?.() }),
+    h('button', { class: 'pp-btn pp-btn-mini', text: t('btn.import'), onclick: () => handlers.onImport?.() }),
+    h('button', { class: 'pp-btn pp-btn-mini', text: t('btn.export'), onclick: () => handlers.onExport?.() })
   ]);
   toolbar.querySelector('.pp-lib-sort').value = sort || 'recent';
   toolbar.querySelector('.pp-lib-sort').addEventListener('change', (ev) => handlers.onSort?.(ev.target?.value || 'recent'));
@@ -301,13 +310,17 @@ export function renderLibraryView(o) {
   const total = library?.items?.length || 0;
   const isFiltered = !!String(query || '').trim() || !!model || items.length !== total;
   kids.push(h('div', { class: 'pp-sum-line' }, [
-    h('span', { text: isFiltered ? `筛选后显示 ${items.length} / 共 ${total} 条` : `共 ${total} 条收藏` })
+    h('span', {
+        text: isFiltered
+          ? t('meta.countFiltered', { shown: items.length, total })
+          : t('meta.countTotal', { total })
+      })
   ]));
 
   if (!items.length) {
     kids.push(h('div', { class: 'pp-empty', text: library?.items?.length
-      ? '没有匹配的收藏（换个关键词或筛选条件）'
-      : '还没有收藏。到「探针」页选中一条 Prompt，点上方「★ 收藏 Prompt」。' }));
+      ? t('empty.noMatch')
+      : t('empty.noFavorites') }));
     return h('div', { class: 'pp-lib' }, kids);
   }
 
@@ -315,42 +328,46 @@ export function renderLibraryView(o) {
     const isOpen = expanded?.has?.(it.id);
     const src = it.source || {};
     const srcText = src.node_class
-      ? `${src.workflow || '（未命名工作流）'} · ${src.node_class} #${src.node_id ?? '?'}${src.role ? ` · ${src.role}` : ''}`
-      : '手动录入';
+      ? `${src.workflow || t('src.unnamedWorkflow')} · ${src.node_class} #${src.node_id ?? '?'}${src.role ? ` · ${roleTextOf(src.role)}` : ''}`
+      : t('src.manualShort');
     const sBadge = src.status
       ? (['confirmed', 'partial', 'candidate', 'runtime', 'unknown'].includes(src.status)
         ? badge(src.status, statusTextOf(src.status))
         : badge('muted', src.status))
-      : badge('muted', '未记录状态');
+      : badge('muted', t('status.notRecorded'));
 
     const card = h('div', { class: 'pp-lib-item' }, [
       h('div', { class: 'pp-lib-line1' }, [
         // pp-clamp 是"有意截断"的标记：标题最多 2 行、预览最多 3 行（见 style.css）
-        h('span', { class: 'pp-lib-title pp-clamp', text: it.title || '(无标题)' }),
+        h('span', { class: 'pp-lib-title pp-clamp', text: it.title || t('meta.untitled') }),
         it.model ? h('span', { class: 'pp-badge pp-badge-model', text: it.model }) : null
       ]),
       h('div', { class: 'pp-lib-meta' }, [
         sBadge,
-        h('span', { class: 'pp-len', text: `${String(it.text || '').length} 字` }),
+        h('span', { class: 'pp-len', text: t('meta.chars', { n: String(it.text || '').length }) }),
         (Number(it.use_count) || 0) > 0
-          ? h('span', { class: 'pp-len', title: it.last_used_at ? `最近使用 ${fmtTime(it.last_used_at)}` : '', text: `用了 ${it.use_count} 次` })
+          ? h('span', {
+            class: 'pp-len',
+            title: it.last_used_at ? t('meta.usedTitle', { time: fmtTime(it.last_used_at) }) : '',
+            text: t('meta.used', { n: it.use_count })
+          })
           : null,
-        h('span', { class: 'pp-len', text: `收藏于 ${fmtTime(it.created_at || it.updated_at)}` })
+        h('span', { class: 'pp-len', text: t('meta.savedAt', { time: fmtTime(it.created_at || it.updated_at) }) })
       ]),
-      h('div', { class: 'pp-lib-src', title: `来源：${srcText}`, text: `来源：${srcText}` }),
-      h('div', { class: 'pp-lib-preview pp-clamp', text: String(it.text || '') || '（空）' }),
+      h('div', { class: 'pp-lib-src', title: t('src.line', { src: srcText }), text: t('src.line', { src: srcText }) }),
+      h('div', { class: 'pp-lib-preview pp-clamp', text: String(it.text || '') || t('meta.empty') }),
       h('div', { class: 'pp-lib-item-actions' }, [
         h('button', {
           class: 'pp-btn pp-btn-mini',
-          text: isOpen ? '收起' : '查看完整',
+          text: isOpen ? t('btn.collapse') : t('btn.viewAll'),
           onclick: () => o.onToggleExpand?.(it.id)
         }),
-        h('button', { class: 'pp-btn pp-btn-mini', text: '编辑', onclick: () => handlers.onEdit?.(it) }),
+        h('button', { class: 'pp-btn pp-btn-mini', text: t('btn.edit'), onclick: () => handlers.onEdit?.(it) }),
         useCountingCopy(it, handlers.onUsed),
-        h('button', { class: 'pp-btn pp-btn-mini pp-danger', text: '删除', onclick: () => handlers.onDelete?.(it) })
+        h('button', { class: 'pp-btn pp-btn-mini pp-danger', text: t('btn.delete'), onclick: () => handlers.onDelete?.(it) })
       ])
     ]);
-    if (isOpen) card.appendChild(h('pre', { class: 'pp-text', text: it.text || '（空）' }));
+    if (isOpen) card.appendChild(h('pre', { class: 'pp-text', text: it.text || t('meta.empty') }));
     kids.push(card);
   }
 

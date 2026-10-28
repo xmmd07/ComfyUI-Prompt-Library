@@ -26,6 +26,7 @@
   <script type="module">
     import { makeMockApp } from '/devtools/mock-app.mjs';
     import { createPanel } from '/web/probe/panel.mjs';
+    import { applyLocale, getLocale, loadTranslations } from '/web/probe/i18n.mjs';
     import { auditLayout } from '/web/probe/layout-audit.mjs';
 
     /* 内存版假 api：让"我的收藏"页面也能在验证台里真实渲染 */
@@ -109,6 +110,14 @@
       },
 
       view(v) { for (const k of ['a', 'b']) state.panels[k].setView(v); return true; },
+      /** 验证台用：切换界面语言（en / zh），并让两块面板各自重取词 */
+      async locale(lang) {
+        applyLocale(lang);
+        // 验证台没有 /api/i18n，这里显式走一次"接口失败"的兜底路径
+        await loadTranslations(fakeApi, { timeoutMs: 200 });
+        for (const k of ['a', 'b']) state.panels[k]?.refreshTexts?.();
+        return getLocale();
+      },
       rescan() { for (const k of ['a', 'b']) state.panels[k].rescan(); return true; },
       clickTab(label, which = 'a') {
         const t = [...el(which).querySelectorAll('.pp-tab, .pp-seg-btn')].find((x) => x.textContent.includes(label));

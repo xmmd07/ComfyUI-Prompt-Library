@@ -11,6 +11,9 @@
 
 import { installMinidom } from './minidom.mjs';
 import * as L from '../probe/library.mjs';
+// 界面文案固定中文：保持与改造前断言口径一致；英文/切换/回退由 selftest_i18n.mjs 覆盖
+import { setLocaleForTest } from '../probe/i18n.mjs';
+setLocaleForTest('zh');
 
 const results = { pass: 0, fail: 0 };
 function check(label, cond, detail = '') {
@@ -264,7 +267,7 @@ async function main() {
     const libRaw = segApi.files.get('prompt_library/library.json');
     const libItem = libRaw ? JSON.parse(libRaw).items.find((x) => x.title === '分段收藏测试') : null;
     check('分段收藏落库', !!libItem, 'not found');
-    check('落库条目带分段来源标记（field=·分段N + seg 节点信息）', !!libItem && libItem.source?.field?.includes('分段')
+    check('落库条目带分段来源标记（field=·segN 或旧写法 ·分段N + seg 节点信息）', !!libItem && /·(seg|分段)1$/.test(libItem.source?.field || '')
       && typeof libItem.source?.seg?.index === 'number' && !!libItem.source?.seg?.node_title,
       JSON.stringify(libItem?.source || {}));
     check('落库的 seg 节点信息指向该段上游节点（质量词节点）', !!libItem && libItem.source.seg.node_title === '固定质量词｜通常无需修改'

@@ -50,7 +50,8 @@
 .pp-head {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 0 6px;
   padding: 8px 10px 6px;
   min-width: 0;
 }
@@ -64,7 +65,11 @@
 .pp-ver {
   font-size: var(--pp-font-xs);
   color: var(--pp-muted);
-  white-space: nowrap;
+  /* 英文抬头比中文长，窄侧边栏里必须能折行，否则会顶出横向滚动条 */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .pp-seg {

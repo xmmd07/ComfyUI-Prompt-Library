@@ -11,7 +11,8 @@
  * 只做展示与"用户主动触发"的收藏读写；不修改工作流、不提交出图任务。
  */
 
-import { scan, STATUS_TEXT } from './resolver.mjs';
+import { scan } from './resolver.mjs';
+import { t, fmt, getLocale } from './i18n.mjs';
 import { createLiveView } from './graphview.mjs';
 import { renderLibraryView, openItemEditor, confirmDialog } from './favorites.mjs';
 import { makeStorage, makeFileStore } from './storage.mjs';
@@ -35,7 +36,20 @@ const BADGE_CLASS = {
   unknown: 'pp-badge-bad'
 };
 
-const statusTextOf = (s) => STATUS_TEXT[s] || s;
+/**
+ * 状态码 → 界面文案。`status` 本身是**稳定内部标识**（confirmed/candidate/…），
+ * 永不翻译、永不入库为新文案；显示时才取词。
+ */
+const statusTextOf = (s) => (s ? t(`status.${s}`) : '');
+
+/**
+ * 角色码 → 界面文案。旧数据里 role 存的是中文（正向/负向/候选/附加），
+ * 这里做兼容映射，保证历史收藏条目照常显示（不改写用户数据）。
+ */
+const LEGACY_ROLE = { '正向': 'positive', '负向': 'negative', '附加': 'extra', '候选': 'candidate' };
+const roleCode = (r) => LEGACY_ROLE[r] || r || '';
+const roleTextOf = (r) => (r ? t(`role.${roleCode(r)}`) : '');
+
 const PREVIEW_LINES = 3;
 
 export function createPanel(app, opts = {}) {
@@ -81,6 +95,9 @@ export function createPanel(app, opts = {}) {
   let tabsEl = null;
   let bodyEl = null;
   let segEl = null;
+  let titleEl = null;
+  let verEl = null;
+  let footEl = null;
 
   /* ---------- DOM 小工具 ---------- */
   function h(tag, attrs = {}, children = []) {
@@ -106,8 +123,9 @@ export function createPanel(app, opts = {}) {
   async function copyText(text, btn) {
     const label = btn.textContent;
     const ok = await copyViaClipboard(text);
-    btn.textContent = ok ? '已复制 ✓' : '复制失败';
-    setTimeout(() => { btn.textContent = label; }, 1200);
+    btn.textContent = ok ? t('notice.copied') : t('notice.copyFailed');
+    // 恢复时按当前语言重算按键文案（存 key，不存当时的文字）
+    setTimeout(() => { btn.textContent = btn.__ppLabelKey ? t(btn.__ppLabelKey) : label; }, 1200);
   }
 
   async function copyViaClipboard(text) {
@@ -145,7 +163,8 @@ export function createPanel(app, opts = {}) {
   }
 
   function negCopyBtn(text) {
-    const b = h('button', { class: 'pp-btn pp-btn-mini pp-copy', text: '复制负向' });
+    const b = h('button', { class: 'pp-btn pp-btn-mini pp-copy', text: t('btn.copyNegative') });
+    b.__ppLabelKey = 'btn.copyNegative';
     b.addEventListener('click', (ev) => {
       ev.stopPropagation();
       copyText(text, b);
@@ -175,25 +194,26 @@ export function createPanel(app, opts = {}) {
   function warningsFor({ chain, field, status }) {
     // 只保留"字段级"提示；采样器/编码节点的绕过状态由卡片抬头统一说明一次，避免重复
     const parts = [];
-    if (status !== 'confirmed') parts.push(`解析状态为「${statusTextOf(status)}」，未确认就是最终生效的文本`);
-    if (field?.staleWidget) parts.push('节点控件里还存有被连线取代的旧文本（已忽略）');
-    return parts.join('；');
+    if (status !== 'confirmed') parts.push(t('warn.statusNotConfirmed', { status: statusTextOf(status) }));
+    if (field?.staleWidget) parts.push(t('warn.staleWidget'));
+    return parts.join(t('meta.listSep'));
   }
 
   function selectionFromField(chain, field) {
-    const t = chain.target || {};
+    const target = chain.target || {};
     const status = field.status;
     return {
       text: field.text ?? '',
       status,
       source: {
         workflow: state.result?.meta?.workflowName || '',
-        node_id: t.id,
-        node_class: t.cls,
+        node_id: target.id,
+        node_class: target.cls,
         field: field.name,
         role: field.role,
         status,
-        status_text: statusTextOf(status),
+        // 只存稳定标识（不再写界面文案）；旧数据里的中文值由 roleCode/statusTextOf 兼容
+        status_text: status,
         sampler: `${chain.sampler.cls} #${chain.sampler.id}`,
         group: chain.sampler.group || '',
         collected_at: new Date().toISOString()
@@ -211,13 +231,13 @@ export function createPanel(app, opts = {}) {
         node_id: c.id,
         node_class: c.cls,
         field: c.field,
-        role: '候选',
+        role: 'candidate',
         status: c.status,
-        status_text: statusTextOf(c.status),
+        status_text: c.status,
         group: c.group || '',
         collected_at: new Date().toISOString()
       },
-      warning: `该条来自"候选文本"：${c.reason}；解析状态为「${statusTextOf(c.status)}」，未确认它就是最终生效的 Prompt`
+      warning: t('warn.fromCandidate', { reason: fmt(c.reason), status: statusTextOf(c.status) })
     };
   }
 
@@ -232,13 +252,13 @@ export function createPanel(app, opts = {}) {
   function openFavorite({ fromSelection = false, item = null } = {}) {
     if (fromSelection) {
       if (!state.selected) {
-        state.scanNotice = { level: 'warn', text: '还没有选中 Prompt：请先在「探针」页点一条 Prompt（点卡片或「选为收藏」），再点「★ 收藏 Prompt」。' };
+        state.scanNotice = { level: 'warn', text: t('notice.noSelection') };
         state.view = 'scan';
         render();
         return;
       }
       if (!String(state.selected.text || '').trim()) {
-        state.scanNotice = { level: 'warn', text: '选中的这条内容为空（通常是"运行时生成"或"无法确认"的项），无法收藏，请换一条。' };
+        state.scanNotice = { level: 'warn', text: t('notice.selectionEmpty') };
         state.view = 'scan';
         render();
         return;
@@ -265,14 +285,14 @@ export function createPanel(app, opts = {}) {
       warning: fromSelection ? draft.warningText : '',
       onSave: async (saved) => {
         const check = validateItem(saved);
-        if (!check.ok) return { ok: false, error: Object.values(check.errors).join('；') };
+        if (!check.ok) return { ok: false, error: t('meta.errors', { list: Object.values(check.errors).map((c) => t(c)).join(t('meta.listSep')) }) };
         return await persistItem(saved);
       }
     });
   }
 
   async function persistItem(draft) {
-    if (!storage) return { ok: false, error: '未取到 ComfyUI API，无法保存' };
+    if (!storage) return { ok: false, error: t('err.noApiSave') };
     const isNew = !draft.id;
     const item = { ...draft, id: draft.id || newId(), created_at: draft.created_at || new Date().toISOString() };
     const lib = normalizeLibrary({ ...state.library, items: (state.library.items || []).slice() });
@@ -284,7 +304,8 @@ export function createPanel(app, opts = {}) {
       state.lastModel = item.model;
       state.libNotice = {
         level: 'info',
-        text: `已${isNew ? '收藏' : '更新'}：${item.title}${res.merged ? '（磁盘上有更新版本，已合并保存）' : ''}`
+        text: t(isNew ? 'notice.saved' : 'notice.updated', { title: item.title })
+          + (res.merged ? t('notice.merged') : '')
       };
       if (isNew) state.selected = null;
       render();
@@ -296,7 +317,7 @@ export function createPanel(app, opts = {}) {
 
   async function loadLibrary() {
     if (!storage) {
-      state.libNotice = { level: 'error', text: '未取到 ComfyUI API：收藏功能不可用（只读探针不受影响）。' };
+      state.libNotice = { level: 'error', text: t('err.noApiLibrary') };
       render();
       return;
     }
@@ -309,26 +330,26 @@ export function createPanel(app, opts = {}) {
       if (r.state === 'corrupt') {
         state.libNotice = {
           level: 'error',
-          text: `收藏库文件无法解析，已停止写入以保护数据：${r.error || ''}`,
+          text: t('err.libraryCorrupt', { error: r.error || '' }),
           actions: [
-            { label: '导出原始内容', onClick: () => downloadText('prompt_library.broken.json', r.raw || '') },
-            { label: '重试加载', onClick: () => { loadLibrary(); } },
+            { label: t('btn.exportRaw'), onClick: () => downloadText('prompt_library.broken.json', r.raw || '') },
+            { label: t('btn.retry'), onClick: () => { loadLibrary(); } },
             {
-              label: '另存损坏文件并重建空库',
+              label: t('btn.quarantine'),
               onClick: () => confirmDialog({
                 host: rootEl,
-                title: '重建空库？',
-                message: '会把当前内容另存为 library.broken.<时间>.json，然后把 library.json 重置为空库。此操作需要你确认，且不可撤销。',
-                confirmLabel: '确认重建',
+                title: t('dlg.rebuildTitle'),
+                message: t('dlg.rebuildMsg'),
+                confirmLabel: t('btn.confirmRebuild'),
                 onConfirm: async () => {
                   try {
                     const name = await storage.quarantineBroken(r.raw);
                     const fresh = await storage.resetToEmpty();
                     state.library = fresh;
                     state.library.__path = storage.paths.human;
-                    state.libNotice = { level: 'info', text: `已重建空库；原内容已另存为 ${name}` };
+                    state.libNotice = { level: 'info', text: t('notice.rebuilt', { name }) };
                   } catch (e) {
-                    state.libNotice = { level: 'error', text: `重建失败：${errText(e)}` };
+                    state.libNotice = { level: 'error', text: t('err.rebuildFailed', { error: errText(e) }) };
                   }
                   render();
                 }
@@ -342,12 +363,12 @@ export function createPanel(app, opts = {}) {
       state.library = r.library || emptyLibrary();
       state.library.__path = storage.paths.human;
       state.libNotice = r.state === 'missing'
-        ? { level: 'info', text: '收藏库为空（首次使用），保存第一条后会自动创建文件。' }
+        ? { level: 'info', text: t('notice.libraryEmpty') }
         : null;
       render();
     } catch (e) {
       state.libLoading = false;
-      state.libNotice = { level: 'error', text: `读取收藏库失败：${errText(e)}` };
+      state.libNotice = { level: 'error', text: t('err.readLibrary', { error: errText(e) }) };
       render();
     }
   }
@@ -355,9 +376,9 @@ export function createPanel(app, opts = {}) {
   function askDelete(item) {
     confirmDialog({
       host: rootEl,
-      title: '删除这条收藏？',
-      message: `「${item.title || '(无标题)'}」将被删除，存储文件会被覆盖为新版本（上一版仍保留在 library.bak.json）。`,
-      confirmLabel: '确认删除',
+      title: t('dlg.deleteFavoriteTitle'),
+      message: t('dlg.deleteFavoriteMsg', { title: item.title || t('meta.untitled') }),
+      confirmLabel: t('btn.confirmDelete'),
       onConfirm: async () => {
         const lib = normalizeLibrary({ ...state.library, items: (state.library.items || []).slice() });
         removeItem(lib, item.id);
@@ -365,9 +386,9 @@ export function createPanel(app, opts = {}) {
           const res = await storage.save(lib);
           state.library = res.library;
           state.library.__path = storage.paths.human;
-          state.libNotice = { level: 'info', text: `已删除：${item.title || '(无标题)'}` };
+          state.libNotice = { level: 'info', text: t('notice.deleted', { title: item.title || t('meta.untitled') }) };
         } catch (e) {
-          state.libNotice = { level: 'error', text: `删除失败（未写入，数据未变）：${errText(e)}` };
+          state.libNotice = { level: 'error', text: t('err.deleteFailed', { error: errText(e) }) };
         }
         render();
       }
@@ -381,7 +402,7 @@ export function createPanel(app, opts = {}) {
 
   async function loadArtists() {
     if (!artFiles) {
-      state.artNotice = { level: 'error', text: '未取到 ComfyUI API：画师串功能不可用。' };
+      state.artNotice = { level: 'error', text: t('err.noApiArtists') };
       render();
       return;
     }
@@ -399,25 +420,25 @@ export function createPanel(app, opts = {}) {
           state.artists = normalizeArtists(JSON.parse(raw));
           state.artNotice = null;
         } catch (e) {
-          state.artNotice = { level: 'error', text: `画师串文件不是合法 JSON，已停止写入以保护数据：${e.message}` };
+          state.artNotice = { level: 'error', text: t('err.artistsBadJson', { error: e.message }) };
         }
       }
     } catch (e) {
       state.artLoading = false;
-      state.artNotice = { level: 'error', text: `读取画师串失败：${errText(e)}` };
+      state.artNotice = { level: 'error', text: t('err.readArtists', { error: errText(e) }) };
     }
     render();
   }
 
   /** 保存 artists.json（备份 + rev 合并，与收藏库同规则）。传入最终数据，返回保存后的数据。 */
   async function saveArtists(next) {
-    if (!artFiles) throw new Error('未取到 ComfyUI API');
+    if (!artFiles) throw new Error(t('err.noApi'));
     // 损坏拒写：磁盘内容不可解析时停手
     const diskRaw = await artFiles.readText(ART_FILE);
     let diskParsed = null;
     if (diskRaw && diskRaw.trim()) {
       try { diskParsed = normalizeArtists(JSON.parse(diskRaw)); } catch (e) { diskParsed = null; }
-      if (!diskParsed) throw new Error('磁盘上的画师串文件不是合法 JSON，为避免覆盖已停止写入');
+      if (!diskParsed) throw new Error(t('err.artistsDiskBad'));
     }
     let merged = normalizeArtists(next);
     if (diskParsed && diskParsed.rev > merged.rev) merged = mergeArtists(merged, diskParsed);
@@ -432,17 +453,19 @@ export function createPanel(app, opts = {}) {
   function askDeleteArtist(item) {
     confirmDialog({
       host: rootEl,
-      title: '删除这条画师串？',
-      message: `「${(item.text || '').slice(0, 60)}${(item.text || '').length > 60 ? '…' : ''}」将被删除（上一版仍保留在 artists.bak.json）。`,
-      confirmLabel: '确认删除',
+      title: t('dlg.deleteArtistTitle'),
+      message: t('dlg.deleteArtistMsg', {
+        text: `${(item.text || '').slice(0, 60)}${(item.text || '').length > 60 ? '…' : ''}`
+      }),
+      confirmLabel: t('btn.confirmDelete'),
       onConfirm: async () => {
         try {
           const next = normalizeArtists({ ...state.artists, items: state.artists.items.filter((x) => x.id !== item.id) });
           state.artists = await saveArtists(next);
           if (item.thumb) { try { await artFiles.remove(item.thumb); } catch (e) { /* 图片删不掉不影响数据 */ } }
-          state.artNotice = { level: 'info', text: '已删除画师串' };
+          state.artNotice = { level: 'info', text: t('notice.artistDeleted') };
         } catch (e) {
-          state.artNotice = { level: 'error', text: `删除失败（未写入，数据未变）：${errText(e)}` };
+          state.artNotice = { level: 'error', text: t('err.deleteFailed', { error: errText(e) }) };
         }
         render();
       }
@@ -458,7 +481,7 @@ export function createPanel(app, opts = {}) {
       const file = input.files?.[0];
       if (!file) return;
       if (file.size > 10 * 1024 * 1024) {
-        state.libNotice = { level: 'error', text: `文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），导入上限 10MB` };
+        state.libNotice = { level: 'error', text: t('err.fileTooLarge', { size: (file.size / 1024 / 1024).toFixed(1) }) };
         render();
         return;
       }
@@ -466,13 +489,13 @@ export function createPanel(app, opts = {}) {
       try {
         parsed = JSON.parse(await file.text());
       } catch (e) {
-        state.libNotice = { level: 'error', text: '文件不是合法的收藏库导出（JSON 解析失败）' };
+        state.libNotice = { level: 'error', text: t('err.importNotJson') };
         render();
         return;
       }
       const incoming = (Array.isArray(parsed?.items) ? parsed.items : []).map(normalizeItem).filter(Boolean);
       if (!incoming.length) {
-        state.libNotice = { level: 'error', text: '文件里没有可导入的收藏条目（结构需为 {version, items:[...]}）' };
+        state.libNotice = { level: 'error', text: t('err.importNoItems') };
         render();
         return;
       }
@@ -490,7 +513,7 @@ export function createPanel(app, opts = {}) {
         added++;
       }
       if (!added) {
-        state.libNotice = { level: 'warn', text: `导入完成：0 条新增，跳过 ${skipped} 条与现有重复` };
+        state.libNotice = { level: 'warn', text: t('notice.importNone', { skipped }) };
         render();
         return;
       }
@@ -499,10 +522,10 @@ export function createPanel(app, opts = {}) {
         const res = await storage.save(next);
         state.library = res.library;
         state.library.__path = storage.paths.human;
-        state.libNotice = { level: 'info', text: `导入完成：新增 ${added} 条${skipped ? `，跳过 ${skipped} 条与现有重复` : ''}` };
+        state.libNotice = { level: 'info', text: t('notice.importOk', { added }) + (skipped ? t('notice.importSkipped', { skipped }) : '') };
         render();
       } catch (e) {
-        state.libNotice = { level: 'error', text: `导入失败（未写入，数据未变）：${errText(e)}` };
+        state.libNotice = { level: 'error', text: t('err.importFailed', { error: errText(e) }) };
         render();
       }
     });
@@ -588,9 +611,10 @@ export function createPanel(app, opts = {}) {
 
   /** 保存（新增/编辑）：处理选图 → 压缩 1024px 副本 → 写 artists.json；串就是标题，没有名称字段 */
   async function persistArtist({ id, text, model, keepThumb, newPick }) {
-    if (!artFiles) return { ok: false, error: '未取到 ComfyUI API，无法保存' };
+    if (!artFiles) return { ok: false, error: t('err.noApiSave') };
     const check = validateArtist({ text });
-    if (!check.ok) return { ok: false, error: Object.values(check.errors).join('；') };
+    // 校验错误是 code，显示时才翻译
+    if (!check.ok) return { ok: false, error: Object.values(check.errors).map((c) => t(c)).join('; ') };
     try {
       const isNew = !id;
       const itemId = id || newId();
@@ -640,7 +664,7 @@ export function createPanel(app, opts = {}) {
       if (oldThumbWhenDropped) {
         try { await artFiles.remove(oldThumbWhenDropped); } catch (e) { /* 尽力而为 */ }
       }
-      state.artNotice = { level: 'info', text: isNew ? '已添加画师串' : '已更新画师串' };
+      state.artNotice = { level: 'info', text: t(isNew ? 'notice.artistAdded' : 'notice.artistUpdated') };
       render();
       return { ok: true };
     } catch (e) {
@@ -655,7 +679,7 @@ export function createPanel(app, opts = {}) {
 
   async function loadLoras() {
     if (!artFiles) {
-      state.loraNotice = { level: 'error', text: '未取到 ComfyUI API：LoRA 提示词功能不可用。' };
+      state.loraNotice = { level: 'error', text: t('err.noApiLoras') };
       render();
       return;
     }
@@ -673,24 +697,24 @@ export function createPanel(app, opts = {}) {
           state.loras = normalizeLoras(JSON.parse(raw));
           state.loraNotice = null;
         } catch (e) {
-          state.loraNotice = { level: 'error', text: `LoRA 提示词文件不是合法 JSON，已停止写入以保护数据：${e.message}` };
+          state.loraNotice = { level: 'error', text: t('err.lorasBadJson', { error: e.message }) };
         }
       }
     } catch (e) {
       state.loraLoading = false;
-      state.loraNotice = { level: 'error', text: `读取 LoRA 提示词失败：${errText(e)}` };
+      state.loraNotice = { level: 'error', text: t('err.readLoras', { error: errText(e) }) };
     }
     render();
   }
 
   /** 保存 loras.json（备份 + rev 合并，与画师串/收藏库同规则）。传入最终数据，返回保存后的数据。 */
   async function saveLoras(next) {
-    if (!artFiles) throw new Error('未取到 ComfyUI API');
+    if (!artFiles) throw new Error(t('err.noApi'));
     const diskRaw = await artFiles.readText(LORA_FILE);
     let diskParsed = null;
     if (diskRaw && diskRaw.trim()) {
       try { diskParsed = normalizeLoras(JSON.parse(diskRaw)); } catch (e) { diskParsed = null; }
-      if (!diskParsed) throw new Error('磁盘上的 LoRA 提示词文件不是合法 JSON，为避免覆盖已停止写入');
+      if (!diskParsed) throw new Error(t('err.lorasDiskBad'));
     }
     let merged = normalizeLoras(next);
     if (diskParsed && diskParsed.rev > merged.rev) merged = mergeLoras(merged, diskParsed);
@@ -705,16 +729,16 @@ export function createPanel(app, opts = {}) {
   function askDeleteLora(item) {
     confirmDialog({
       host: rootEl,
-      title: '删除这条 LoRA 提示词？',
-      message: `「${loraBasenameOf(item.lora)}」的提示词将被删除（上一版仍保留在 loras.bak.json）。`,
-      confirmLabel: '确认删除',
+      title: t('dlg.deleteLoraTitle'),
+      message: t('dlg.deleteLoraMsg', { name: loraBasenameOf(item.lora) }),
+      confirmLabel: t('btn.confirmDelete'),
       onConfirm: async () => {
         try {
           const next = normalizeLoras({ ...state.loras, items: state.loras.items.filter((x) => x.id !== item.id) });
           state.loras = await saveLoras(next);
-          state.loraNotice = { level: 'info', text: '已删除' };
+          state.loraNotice = { level: 'info', text: t('notice.deletedPlain') };
         } catch (e) {
-          state.loraNotice = { level: 'error', text: `删除失败（未写入，数据未变）：${errText(e)}` };
+          state.loraNotice = { level: 'error', text: t('err.deleteFailed', { error: errText(e) }) };
         }
         render();
       }
@@ -729,9 +753,9 @@ export function createPanel(app, opts = {}) {
 
   /** 保存（新增/编辑）LoRA 提示词 */
   async function persistLora({ id, lora, prompt }) {
-    if (!artFiles) return { ok: false, error: '未取到 ComfyUI API，无法保存' };
+    if (!artFiles) return { ok: false, error: t('err.noApiSave') };
     const check = validateLora({ lora, prompt });
-    if (!check.ok) return { ok: false, error: Object.values(check.errors).join('；') };
+    if (!check.ok) return { ok: false, error: Object.values(check.errors).map((c) => t(c)).join('; ') };
     try {
       const isNew = !id;
       const itemId = id || globalThis.crypto?.randomUUID?.() || 'l' + Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -749,7 +773,7 @@ export function createPanel(app, opts = {}) {
       else next.items.push(entry);
 
       state.loras = await saveLoras(next);
-      state.loraNotice = { level: 'info', text: isNew ? '已添加 LoRA 提示词' : '已更新 LoRA 提示词' };
+      state.loraNotice = { level: 'info', text: t(isNew ? 'notice.loraAdded' : 'notice.loraUpdated') };
       render();
       return { ok: true };
     } catch (e) {
@@ -768,18 +792,19 @@ export function createPanel(app, opts = {}) {
     const isOpen = state.expanded.has(key);
 
     const selectBtn = actionBtn(
-      isSelected ? '已选中 ✓' : '选为收藏',
+      isSelected ? t('btn.selected') : t('btn.select'),
       () => toggleSelect(selectPayload, key),
       `pp-btn pp-btn-mini ${isSelected ? 'pp-primary' : ''}`
     );
 
+    const roleCodeOf = roleCode(role);
     const head = h('div', { class: 'pp-field-h' }, [
-      h('span', { class: `pp-role ${role === '负向' ? 'pp-role-neg' : ''}`, text: role }),
+      h('span', { class: `pp-role ${roleCodeOf === 'negative' ? 'pp-role-neg' : ''}`, text: roleTextOf(role) }),
       h('span', { class: 'pp-mono pp-ellip', text: nodeLabel, title: nodeLabel }),
       badge(status, statusTextOf(status)),
-      mode ? badge(mode === 4 ? 'unknown' : 'partial', mode) : null,
+      mode ? badge(mode === 'mode.4' ? 'unknown' : 'partial', fmt(mode)) : null,
       h('span', { class: 'pp-spacer' }),
-      h('span', { class: 'pp-len', text: `${length ?? String(text || '').length} 字` })
+      h('span', { class: 'pp-len', text: t('meta.chars', { n: length ?? String(text || '').length }) })
     ]);
 
     const kids = [head];
@@ -788,14 +813,14 @@ export function createPanel(app, opts = {}) {
     if (extraMeta) kids.push(extraMeta);
 
     const previewWrap = h('div', { class: isOpen ? '' : 'pp-clamp' }, [
-      h('pre', { class: 'pp-text', text: text == null || text === '' ? '（空）' : String(text) })
+      h('pre', { class: 'pp-text', text: text == null || text === '' ? t('meta.empty') : String(text) })
     ]);
     kids.push(previewWrap);
 
     const actions = h('div', { class: 'pp-row', style: 'margin-top:6px' }, [
       selectBtn,
-      actionBtn('复制', () => copyText(text ?? '', actions.querySelector('.pp-copy')), 'pp-btn pp-btn-mini pp-copy'),
-      actionBtn(isOpen ? '收起' : '展开全文', () => {
+      actionBtn(t('btn.copy'), () => copyText(text ?? '', actions.querySelector('.pp-copy')), 'pp-btn pp-btn-mini pp-copy'),
+      actionBtn(isOpen ? t('btn.collapse') : t('btn.expandAll'), () => {
         if (state.expanded.has(key)) state.expanded.delete(key);
         else state.expanded.add(key);
         render();
@@ -806,7 +831,7 @@ export function createPanel(app, opts = {}) {
 
     if (details.length) {
       const d = h('details', { class: 'pp-details' }, [
-        h('summary', { class: 'pp-summary', text: '技术详情' }),
+        h('summary', { class: 'pp-summary', text: t('probe.details') }),
         ...details.filter(Boolean)
       ]);
       // 点「技术详情」不应触发卡片的选中/取消选中
@@ -826,11 +851,11 @@ export function createPanel(app, opts = {}) {
     const segKids = segs.map((s, i) => {
       const segKey = `${chainKey}-seg-${i}`;
       const segOpen = state.expanded.has(segKey);
-      const src = s.source ? `${s.source.cls} #${s.source.id}${s.source.title ? `「${s.source.title}」` : ''}` : '（未知）';
+      const src = s.source ? `${s.source.cls} #${s.source.id}${s.source.title ? `「${s.source.title}」` : ''}` : t('meta.unknown');
       const segActions = h('div', { class: 'pp-row', style: 'margin:4px 0' }, [
-        actionBtn(`复制本段 (${String(s.text || '').length} 字)`, () => copyText(s.text ?? '', segActions.querySelector('.pp-copy')), 'pp-btn pp-btn-mini pp-copy'),
-        actionBtn('★ 收藏本段', () => favoriteSeg(chain, field, s, i), 'pp-btn pp-btn-mini pp-primary'),
-        actionBtn(segOpen ? '收起' : '展开', () => {
+        actionBtn(t('btn.copySegment', { n: String(s.text || '').length }), () => copyText(s.text ?? '', segActions.querySelector('.pp-copy')), 'pp-btn pp-btn-mini pp-copy'),
+        actionBtn(t('btn.favoriteSegment'), () => favoriteSeg(chain, field, s, i), 'pp-btn pp-btn-mini pp-primary'),
+        actionBtn(segOpen ? t('btn.collapse') : t('btn.expand'), () => {
           if (state.expanded.has(segKey)) state.expanded.delete(segKey);
           else state.expanded.add(segKey);
           render();
@@ -838,17 +863,21 @@ export function createPanel(app, opts = {}) {
       ]);
       return h('div', { class: 'pp-part' }, [
         h('div', { class: 'pp-part-h' }, [
-          h('span', { class: 'pp-mono pp-ellip', text: `第${i + 1}段 · ${src} · 输入口 ${s.name}`, title: `${src} · ${s.name}` }),
+          h('span', {
+            class: 'pp-mono pp-ellip',
+            text: t('probe.segLine', { index: i + 1, src, name: s.name }),
+            title: `${src} · ${s.name}`
+          }),
           badge(s.status, statusTextOf(s.status))
         ]),
         h('div', { class: segOpen ? '' : 'pp-clamp' }, [
-          h('pre', { class: 'pp-text', text: (s.text || '') === '' ? '（空）' : String(s.text) })
+          h('pre', { class: 'pp-text', text: (s.text || '') === '' ? t('meta.empty') : String(s.text) })
         ]),
         segActions
       ]);
     });
     const d = h('details', { class: 'pp-details pp-parts' }, [
-      h('summary', { class: 'pp-summary', text: `分段（${segs.length} 段）｜点开看` }),
+      h('summary', { class: 'pp-summary', text: t('probe.segSummary', { count: segs.length }) }),
       ...segKids
     ]);
     // 整区展开状态受控（存 state.partsOpen）：render 重建后不丢；点击不冒泡到卡片（避免误触发"选为收藏"）
@@ -870,17 +899,19 @@ export function createPanel(app, opts = {}) {
       fromSelection: false,
       item: {
         id: undefined,
-        title: segSource.title ? `${segSource.title}（分段${index + 1}）` : '',
+        title: segSource.title ? t('probe.segTitleSuffix', { title: segSource.title, index: index + 1 }) : '',
         text: String(seg.text || ''),
         source: {
           workflow: state.result?.meta?.workflowName || '',
           node_id: segSource.id,
           node_class: segSource.cls,
-          field: `${field.name}·分段${index + 1}`,
+          // 落库用 ASCII 稳定后缀（不写界面文案），旧数据里的「·分段N」显示时同样可读
+          field: `${field.name}·seg${index + 1}`,
           seg: { index: index + 1, input: seg.name, node_title: segSource.title || '' },
           role: field.role,
           status: seg.status,
-          status_text: statusTextOf(seg.status),
+          // 落库只写稳定标识，不写界面文案（显示时再翻译）
+          status_text: seg.status,
           sampler: `${chain.sampler.cls} #${chain.sampler.id}`,
           group: chain.sampler.group || '',
           collected_at: new Date().toISOString()
@@ -892,19 +923,26 @@ export function createPanel(app, opts = {}) {
   /** 字段（正向/负向）→ 卡片 */
   function fieldCard(field, target, chain) {
     const key = `chain-${chain.sampler.id}-${field.name}`;
-    const srcNode = field.source ? `${field.source.cls} #${field.source.id}${field.source.title ? ` 「${field.source.title}」` : ''}` : '（未知）';
+    const srcNode = field.source ? `${field.source.cls} #${field.source.id}${field.source.title ? ` 「${field.source.title}」` : ''}` : t('meta.unknown');
 
     const details = [];
-    if (field.path) details.push(h('div', { class: 'pp-path', text: `取值链：${field.path}` }));
-    if (field.source) details.push(h('div', { class: 'pp-path', text: `目标节点：${target.cls} #${target.id} · 字段 ${field.name}${field.fromLink ? '（来自连线）' : '（控件直写）'}` }));
-    if (field.notes?.length) details.push(h('ul', { class: 'pp-notes' }, field.notes.map((n) => h('li', { text: n }))));
+    if (field.path) details.push(h('div', { class: 'pp-path', text: t('probe.valueChain', { path: fmt(field.path) }) }));
+    if (field.source) {
+      details.push(h('div', {
+        class: 'pp-path',
+        text: t('probe.targetNode', {
+          cls: target.cls,
+          id: target.id,
+          field: field.name,
+          how: field.fromLink ? t('probe.fromLink') : t('probe.fromWidget')
+        })
+      }));
+    }
+    if (field.notes?.length) details.push(h('ul', { class: 'pp-notes' }, field.notes.map((n) => h('li', { text: fmt(n) }))));
     if (field.branches?.length) {
       details.push(h('div', { class: 'pp-branches' }, [
-        h('div', { text: '分支（ComfySwitchNode 等）：' }),
-        ...field.branches.map((b) => h('div', {
-          class: 'pp-branch',
-          text: `${b.slot}${b.active === true ? '（当前生效）' : b.active === false ? '（未生效）' : ''} · ${b.length} 字 · ${b.statusText} — ${b.preview}`
-        }))
+        h('div', { text: t('probe.branches') }),
+        ...field.branches.map((b) => h('div', { class: 'pp-branch', text: fmt(b.line) }))
       ]));
     }
 
@@ -918,7 +956,7 @@ export function createPanel(app, opts = {}) {
       mode: null,
       text: field.text,
       length: field.length,
-      sourceLabel: `来源：${srcNode}`,
+      sourceLabel: t('src.line', { src: srcNode }),
       warnings: warningsFor({ chain, field, status: field.status }) ? [warningsFor({ chain, field, status: field.status })] : [],
       details,
       extraAfterActions: partsEl,
@@ -929,26 +967,29 @@ export function createPanel(app, opts = {}) {
   function chainCard(chain, index, total) {
     const s = chain.sampler;
     const head = h('div', { class: 'pp-card-h' }, [
-      h('span', { class: 'pp-tag', text: total > 1 ? `采样链 ${index + 1}/${total}` : '采样链' }),
+      h('span', {
+        class: 'pp-tag',
+        text: total > 1 ? t('probe.samplingChainN', { i: index + 1, total }) : t('probe.samplingChain')
+      }),
       h('b', { class: 'pp-mono', text: `${s.cls} #${s.id}` }),
-      s.group ? h('span', { class: 'pp-group', text: `【${s.group}】` }) : null,
-      s.mode !== 0 ? badge(s.mode === 4 ? 'unknown' : 'partial', s.modeText) : badge('confirmed', s.modeText),
+      s.group ? h('span', { class: 'pp-group', text: t('probe.group', { group: s.group }) }) : null,
+      s.mode !== 0 ? badge(s.mode === 4 ? 'unknown' : 'partial', fmt(s.modeText)) : badge('confirmed', fmt(s.modeText)),
       h('span', { class: 'pp-spacer' }),
       h('span', { class: 'pp-len', text: `positive ← ${chain.entryName || 'positive'}` })
     ]);
 
     const kids = [head];
-    if (chain.hint) kids.push(h('div', { class: 'pp-hint', text: chain.hint }));
+    if (chain.hint) kids.push(h('div', { class: 'pp-hint', text: fmt(chain.hint) }));
     if (chain.warning) {
-      kids.push(h('div', { class: 'pp-warn', text: `⚠ ${chain.warning}` }));
+      kids.push(h('div', { class: 'pp-warn', text: `⚠ ${fmt(chain.warning)}` }));
       return h('div', { class: 'pp-card' }, kids);
     }
     // 采样器 / 文本编码节点的"不参与出图"状态只说明一次
     const offParts = [];
-    if (s.bypassed) offParts.push(`采样器「${s.modeText}」`);
-    if (chain.target?.bypassed) offParts.push(`文本编码节点 #${chain.target.id}「${chain.target.modeText}」`);
+    if (s.bypassed) offParts.push(t('warn.bypassedSampler', { mode: fmt(s.modeText) }));
+    if (chain.target?.bypassed) offParts.push(t('warn.bypassedEncoder', { id: chain.target.id, mode: fmt(chain.target.modeText) }));
     if (offParts.length) {
-      kids.push(h('div', { class: 'pp-warn', text: `⚠ 本轮不参与出图：${offParts.join('、')}（下方文本仅作参考）` }));
+      kids.push(h('div', { class: 'pp-warn', text: t('warn.bypassed', { parts: offParts.join('; ') }) }));
     }
 
     for (const field of chain.fields) kids.push(fieldCard(field, chain.target, chain));
@@ -956,12 +997,12 @@ export function createPanel(app, opts = {}) {
     if (chain.negative) {
       const n = chain.negative;
       kids.push(h('div', { class: 'pp-neg' }, [
-        h('span', { class: 'pp-src', text: '负向：' }),
-        h('span', { class: 'pp-mono', text: n.target ? `${n.target.cls} #${n.target.id} · ${n.field}` : '无文本编码节点' }),
-        h('span', { class: 'pp-len', text: `${n.length} 字` }),
-        badge(n.status, n.statusText),
-        n.sameAsPositive ? h('span', { class: 'pp-hint', text: '（与正向同一节点）' }) : null,
-        n.note ? h('span', { class: 'pp-hint', text: n.note }) : null,
+        h('span', { class: 'pp-src', text: t('probe.negative') }),
+        h('span', { class: 'pp-mono', text: n.target ? `${n.target.cls} #${n.target.id} · ${n.field}` : t('probe.noEncoder') }),
+        h('span', { class: 'pp-len', text: t('meta.chars', { n: n.length }) }),
+        badge(n.status, statusTextOf(n.status)),
+        n.sameAsPositive ? h('span', { class: 'pp-hint', text: t('probe.sameAsPositive') }) : null,
+        n.note ? h('span', { class: 'pp-hint', text: fmt(n.note) }) : null,
         n.text ? negCopyBtn(n.text) : null
       ]));
     }
@@ -971,25 +1012,25 @@ export function createPanel(app, opts = {}) {
   function candidatesCard(list) {
     const kids = [
       h('div', { class: 'pp-card-h' }, [
-        h('span', { class: 'pp-tag', text: '候选文本' }),
-        h('b', { text: `${list.length} 个文本编码节点未被采样链引用` })
+        h('span', { class: 'pp-tag', text: t('probe.candidates') }),
+        h('b', { text: t('probe.candidatesCount', { n: list.length }) })
       ]),
-      h('div', { class: 'pp-hint', text: '这些节点的文本无法确认是否参与出图，仅作候选展示。' })
+      h('div', { class: 'pp-hint', text: t('probe.candidatesHint') })
     ];
     for (const c of list) {
       const key = `candidate-${c.id}-${c.field}`;
       kids.push(promptCard({
         key,
-        role: '候选',
+        role: 'candidate',
         nodeLabel: `${c.cls} #${c.id} · ${c.field}`,
         status: c.status,
-        mode: c.modeText && c.mode !== 0 ? c.modeText : null,
+        mode: c.mode !== 0 ? (c.modeText || null) : null,
         text: c.text,
         length: c.length,
-        sourceLabel: c.reason,
+        sourceLabel: fmt(c.reason),
         details: [
-          c.path ? h('div', { class: 'pp-path', text: `取值链：${c.path}` }) : null,
-          c.notes?.length ? h('ul', { class: 'pp-notes' }, c.notes.map((n) => h('li', { text: n }))) : null
+          c.path ? h('div', { class: 'pp-path', text: t('probe.valueChain', { path: fmt(c.path) }) }) : null,
+          c.notes?.length ? h('ul', { class: 'pp-notes' }, c.notes.map((n) => h('li', { text: fmt(n) }))) : null
         ],
         selectPayload: selectionFromCandidate(c)
       }));
@@ -1007,7 +1048,7 @@ export function createPanel(app, opts = {}) {
       state.error = null;
     } catch (e) {
       state.result = null;
-      state.error = `扫描异常：${e?.message || e}`;
+      state.error = t('err.scanFailed', { error: e?.message || e });
       console.error('[Prompt Probe] scan failed', e);
     }
     state.scannedAt = new Date();
@@ -1025,11 +1066,16 @@ export function createPanel(app, opts = {}) {
     const favCount = (state.library.items || []).length;
     const artCount = (state.artists.items || []).length;
     const loraCount = (state.loras.items || []).length;
+    // 长名给 title（悬停全名），短名给按钮；计数为 0 时不显示「·0」
+    const segOf = (id, count) => ({
+      label: t(`seg.${id}`, { count }),
+      short: count ? t(`seg.${id}Short`, { count }) : t(`seg.${id}Short0`)
+    });
     const items = [
-      { id: 'scan', label: '探针', short: '探针' },
-      { id: 'library', label: `我的收藏 (${favCount})`, short: `收藏${favCount ? ' ·' + favCount : ''}` },
-      { id: 'artists', label: `画师串 (${artCount})`, short: `画师${artCount ? ' ·' + artCount : ''}` },
-      { id: 'loras', label: `LoRA 提示词 (${loraCount})`, short: `LoRA${loraCount ? ' ·' + loraCount : ''}` }
+      { id: 'scan', label: t('seg.scan'), short: t('seg.scanShort') },
+      { id: 'library', ...segOf('library', favCount) },
+      { id: 'artists', ...segOf('artists', artCount) },
+      { id: 'loras', ...segOf('loras', loraCount) }
     ];
     for (const it of items) {
       const b = h('button', { class: `pp-seg-btn ${state.view === it.id ? 'pp-seg-on' : ''}`, text: it.short, title: it.label });
@@ -1056,8 +1102,8 @@ export function createPanel(app, opts = {}) {
   function renderToolbar() {
     toolbarEl.textContent = '';
     if (state.view === 'scan') {
-      toolbarEl.appendChild(actionBtn('重新扫描', rescan, 'pp-btn'));
-      toolbarEl.appendChild(actionBtn('★ 收藏 Prompt', () => openFavorite({ fromSelection: true }), 'pp-btn pp-primary'));
+      toolbarEl.appendChild(actionBtn(t('btn.rescan'), rescan, 'pp-btn'));
+      toolbarEl.appendChild(actionBtn(t('btn.favoritePrompt'), () => openFavorite({ fromSelection: true }), 'pp-btn pp-primary'));
       return;
     }
     if (state.view === 'artists') {
@@ -1094,7 +1140,7 @@ export function createPanel(app, opts = {}) {
       sort: state.libSort,
       expanded: state.libExpanded,
       toolbarSlot: toolbarEl.__libSlot || null,
-      notice: state.libLoading ? { level: 'info', text: '正在读取收藏库…' } : state.libNotice,
+      notice: state.libLoading ? { level: 'info', text: t('notice.loadingLibrary') } : state.libNotice,
       onToggleExpand: (id) => {
         if (state.libExpanded.has(id)) state.libExpanded.delete(id);
         else state.libExpanded.add(id);
@@ -1108,7 +1154,7 @@ export function createPanel(app, opts = {}) {
           const payload = { ...state.library };
           delete payload.__path;
           const ok = downloadText(`prompt_library_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(payload, null, 2));
-          state.libNotice = { level: ok ? 'info' : 'warn', text: ok ? '已导出 JSON（浏览器下载）' : '当前环境不支持下载导出' };
+          state.libNotice = { level: ok ? 'info' : 'warn', text: ok ? t('notice.exported') : t('notice.exportUnsupported') };
           render();
         },
         onEdit: (item) => openFavorite({ item }),
@@ -1128,18 +1174,34 @@ export function createPanel(app, opts = {}) {
     const r = state.result;
     if (!r) return;
 
-    sumEl.appendChild(h('div', { class: 'pp-wf', text: r.meta.workflowName || '未命名 / 未能取得工作流名' }));
+    sumEl.appendChild(h('div', { class: 'pp-wf', text: r.meta.workflowName || t('meta.unnamedWorkflow') }));
     sumEl.appendChild(h('div', { class: 'pp-sum-line' }, [
-      h('span', { text: `节点 ${r.meta.nodeCount} · 采样链 ${r.chains.length} · 候选 ${r.candidates.length}` }),
-      state.scannedAt ? h('span', { text: `· 扫描于 ${state.scannedAt.toLocaleTimeString()}` }) : null
+      h('span', {
+        text: t('probe.summary', {
+          nodes: r.meta.nodeCount,
+          chains: r.chains.length,
+          candidates: r.candidates.length
+        })
+      }),
+      // 时间按当前语言格式化（zh 与 en 的时分秒写法不同）
+      state.scannedAt
+        ? h('span', { text: t('probe.scannedAt', { time: state.scannedAt.toLocaleTimeString(getLocale()) }) })
+        : null
     ]));
 
     if (state.selected) {
       sumEl.appendChild(h('div', { class: 'pp-selected-bar' }, [
-        h('span', { text: `已选中：${state.selected.source?.node_class || ''} #${state.selected.source?.node_id ?? '?'} · ${state.selected.source?.role || ''} · ${String(state.selected.text || '').length} 字` }),
+        h('span', {
+          text: t('probe.selectedBar', {
+            cls: state.selected.source?.node_class || '',
+            id: state.selected.source?.node_id ?? '?',
+            role: roleTextOf(state.selected.source?.role) || '',
+            n: String(state.selected.text || '').length
+          })
+        }),
         h('span', { class: 'pp-spacer' }),
-        actionBtn('收藏这条', () => openFavorite({ fromSelection: true }), 'pp-btn pp-btn-mini pp-primary'),
-        actionBtn('取消选择', () => { state.selected = null; render(); })
+        actionBtn(t('btn.favoriteThis'), () => openFavorite({ fromSelection: true }), 'pp-btn pp-btn-mini pp-primary'),
+        actionBtn(t('btn.deselect'), () => { state.selected = null; render(); })
       ]));
       if (state.selected.warning) sumEl.appendChild(h('div', { class: 'pp-warn', text: `⚠ ${state.selected.warning}` }));
     }
@@ -1147,17 +1209,22 @@ export function createPanel(app, opts = {}) {
       sumEl.appendChild(h('div', { class: `pp-notice pp-notice-${state.scanNotice.level || 'warn'}` }, [h('div', { text: state.scanNotice.text })]));
     }
 
-    const tabs = r.chains.map((c, i) => ({ label: `链${i + 1} · ${c.sampler.cls} #${c.sampler.id}`, card: () => chainCard(c, i, r.chains.length) }));
-    if (r.candidates.length) tabs.push({ label: `候选文本 (${r.candidates.length})`, card: () => candidatesCard(r.candidates) });
+    const tabs = r.chains.map((c, i) => ({
+      label: t('probe.chainTab', { i: i + 1, cls: c.sampler.cls, id: c.sampler.id }),
+      card: () => chainCard(c, i, r.chains.length)
+    }));
+    if (r.candidates.length) {
+      tabs.push({ label: t('probe.candidateTab', { n: r.candidates.length }), card: () => candidatesCard(r.candidates) });
+    }
 
     if (!tabs.length) {
-      bodyEl.appendChild(h('div', { class: 'pp-empty', text: '当前工作流没有检测到「带 positive 输入的采样器 → 文本编码节点」结构。请确认画布上确实打开了工作流。' }));
+      bodyEl.appendChild(h('div', { class: 'pp-empty', text: t('empty.noChain') }));
       return;
     }
     if (state.activeTab >= tabs.length) state.activeTab = 0;
 
-    tabs.forEach((t, i) => {
-      const b = h('button', { class: `pp-tab ${i === state.activeTab ? 'pp-tab-active' : ''}`, text: t.label });
+    tabs.forEach((tab, i) => {
+      const b = h('button', { class: `pp-tab ${i === state.activeTab ? 'pp-tab-active' : ''}`, text: tab.label });
       b.addEventListener('click', () => { state.activeTab = i; render(); });
       tabsEl.appendChild(b);
     });
@@ -1166,8 +1233,8 @@ export function createPanel(app, opts = {}) {
 
     if (r.errors?.length) {
       bodyEl.appendChild(h('div', { class: 'pp-card' }, [
-        h('div', { class: 'pp-card-h' }, [h('span', { class: 'pp-tag', text: '解析异常' })]),
-        h('ul', { class: 'pp-notes' }, r.errors.map((e) => h('li', { text: e })))
+        h('div', { class: 'pp-card-h' }, [h('span', { class: 'pp-tag', text: t('probe.errors') })]),
+        h('ul', { class: 'pp-notes' }, r.errors.map((e) => h('li', { text: fmt(e) })))
       ]));
     }
   }
@@ -1176,7 +1243,7 @@ export function createPanel(app, opts = {}) {
     bodyEl.appendChild(renderArtistsView({
       data: state.artists,
       items: state.artists.items,
-      notice: state.artLoading ? { level: 'info', text: '正在读取画师串…' } : state.artNotice,
+      notice: state.artLoading ? { level: 'info', text: t('notice.loadingArtists') } : state.artNotice,
       toolbarSlot: toolbarEl.__artSlot || null,
       api,
       host: rootEl,
@@ -1221,7 +1288,7 @@ export function createPanel(app, opts = {}) {
   function renderLoras() {
     bodyEl.appendChild(renderLorasView({
       data: state.loras,
-      notice: state.loraLoading ? { level: 'info', text: '正在读取 LoRA 提示词…' } : state.loraNotice,
+      notice: state.loraLoading ? { level: 'info', text: t('notice.loadingLoras') } : state.loraNotice,
       toolbarSlot: toolbarEl.__loraSlot || null,
       api,
       onUsed: (id) => { bumpLoraUsage(id); render(); },
@@ -1234,6 +1301,9 @@ export function createPanel(app, opts = {}) {
     }));
   }
 
+  /** 面板版本号（由入口注入，避免与 prompt_probe.js 各写一份） */
+  const VERSION = opts.version || '0.5.0';
+
   function mount(el) {
     // 幂等守卫：同一容器且还在文档里 → 不重建 DOM、不重新拉数据。
     // （新版 ComfyUI 前端在画布交互时会重新触发 render 回调，无此守卫会导致
@@ -1241,10 +1311,10 @@ export function createPanel(app, opts = {}) {
     if (rootEl && mountEl === el && el && el.isConnected) return;
 
     rootEl = h('div', { class: 'pp-root' });
-    rootEl.appendChild(h('div', { class: 'pp-head' }, [
-      h('span', { class: 'pp-title', text: 'Prompt Library' }),
-      h('span', { class: 'pp-ver', text: 'v0.4.5 · 探针 / 收藏 / 画师串 / LoRA' })
-    ]));
+    titleEl = h('span', { class: 'pp-title', text: t('tab.title') });
+    verEl = h('span', { class: 'pp-ver', text: t('tab.version', { version: VERSION }) });
+    footEl = h('div', { class: 'pp-foot', text: t('tab.foot') });
+    rootEl.appendChild(h('div', { class: 'pp-head' }, [titleEl, verEl]));
     segEl = h('div', { class: 'pp-seg' });
     toolbarEl = h('div', { class: 'pp-toolbar' });
     sumEl = h('div', { class: 'pp-sum' });
@@ -1255,7 +1325,7 @@ export function createPanel(app, opts = {}) {
     rootEl.appendChild(sumEl);
     rootEl.appendChild(tabsEl);
     rootEl.appendChild(bodyEl);
-    rootEl.appendChild(h('div', { class: 'pp-foot', text: '只读探针 · 收藏存于 user\\default\\prompt_library\\' }));
+    rootEl.appendChild(footEl);
 
     el.textContent = '';
     el.appendChild(rootEl);
@@ -1275,6 +1345,9 @@ export function createPanel(app, opts = {}) {
     rootEl = null;
     mountEl = null;
     segEl = null;
+    titleEl = null;
+    verEl = null;
+    footEl = null;
     toolbarEl = null;
     sumEl = null;
     tabsEl = null;
@@ -1295,6 +1368,21 @@ export function createPanel(app, opts = {}) {
     loadLoras,
     persistLora,
     setView: (v) => { state.view = v; render(); },
+    /** 语言切换后调用：重建头部文案并整页重渲染（保留当前页/选中/展开状态） */
+    refreshTexts: () => {
+      try {
+        if (titleEl) titleEl.textContent = t('tab.title');
+        if (verEl) verEl.textContent = t('tab.version', { version: VERSION });
+        if (footEl) footEl.textContent = t('tab.foot');
+        state.libNotice = null;
+        state.artNotice = null;
+        state.loraNotice = null;
+        state.scanNotice = null;
+        render();
+      } catch (e) {
+        console.warn('[Prompt Library] refreshTexts failed', e);
+      }
+    },
     /** 排版体检（只读测量，验收用） */
     auditLayout: () => auditLayout(rootEl)
   };
