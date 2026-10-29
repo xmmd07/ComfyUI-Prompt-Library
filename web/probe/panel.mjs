@@ -21,7 +21,7 @@ import { emptyLibrary, normalizeLibrary, upsertItem, removeItem, filterItems, va
 import {
   emptyArtists, normalizeArtists, mergeArtists, validateArtist, thumbFileFor, cleanOrig,
   fetchHistoryPage, viewFullUrl, makeThumbBlob, loadImageObjectURL, releaseImage, releaseAllImages,
-  openArtistEditor, renderArtistsView
+  invalidateImage, openArtistEditor, renderArtistsView
 } from './artists.mjs';
 import {
   emptyLoras, normalizeLoras, mergeLoras, validateLora,
@@ -629,6 +629,10 @@ export function createPanel(app, opts = {}) {
         await artFiles.writeBin(name, new Uint8Array(await blob.arrayBuffer()), `image/${ext}`);
         thumb = name;
         orig = cleanOrig(newPick);
+        // 换图覆盖了同名（或新旧不同名）文件：强制失效图片缓存 + bump 版本参数，
+        // 否则列表会继续显示内存缓存里的旧 objectURL（灯箱走 /view 直链所以是对的）
+        if (old?.thumb) invalidateImage(old.thumb);
+        invalidateImage(name);
         // 新副本用同名（id 派生）：老扩展名不同时（webp↔jpeg）清理旧文件
         if (old?.thumb && old.thumb !== name) {
           try { await artFiles.remove(old.thumb); } catch (e) { /* 尽力而为 */ }

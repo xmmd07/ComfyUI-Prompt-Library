@@ -75,6 +75,8 @@ Third tab. **The string itself is the entry** — no name/remark fields. Optiona
 
 Each entry can also record a **main model** (from `diffusion_models`) — useful because the same artist string renders differently across fine-tunes.
 
+Replacing a reference image updates the list **immediately** — the image cache is invalidated on save, so you never see the old picture with a fresh one in the lightbox.
+
 ### 4. LoRA Notes
 
 Fourth tab. Click **Add**, pick a LoRA from the popup list (with a filter box), type the prompt that works with it. Each entry shows the LoRA name and the note, each with a one-click copy button. Nothing about your LoRA list is displayed until you click Add.

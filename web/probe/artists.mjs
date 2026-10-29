@@ -166,6 +166,19 @@ export async function makeThumbBlob(url, maxPx = 1024) {
 /* ===================== /userdata 图片读取（attachment 头 → objectURL） ===================== */
 
 const urlCache = new Map();   // name -> {url, refs}
+let cacheVersion = Date.now(); // /userdata fetch 的版本参数：换图覆盖同名文件后 bump，绕过 HTTP 缓存
+
+/** 强制失效某张图的缓存：revoke 旧 objectURL + 删键 + bump 版本参数；下次加载重新 fetch。
+ *  用于「换参考图覆盖同名文件」后列表立即显示新图。对不存在的键安全（无操作）。 */
+export function invalidateImage(name, dir = 'prompt_library') {
+  const full = name && !name.startsWith(dir + '/') ? `${dir}/${name}` : name;
+  const hit = urlCache.get(full);
+  if (hit) {
+    try { URL.revokeObjectURL(hit.url); } catch { /* 已回收就算了 */ }
+    urlCache.delete(full);
+  }
+  cacheVersion = Date.now();
+}
 
 /** 读取数据目录里的图片并给出可显示的 objectURL；用 releaseImage() 归还。
  *  name 是相对于数据根（如 prompt_library）的路径：artists/img_xxx.webp */
@@ -174,7 +187,8 @@ export async function loadImageObjectURL(api, name, dir = 'prompt_library') {
   const full = name.startsWith(dir + '/') ? name : `${dir}/${name}`;
   const hit = urlCache.get(full);
   if (hit) { hit.refs += 1; return hit.url; }
-  const res = await api.fetchApi(`/userdata/${encodeURIComponent(full)}`, { cache: 'no-store' });
+  // 版本参数：绕过浏览器/服务器对 /userdata 的 HTTP 缓存（换图覆盖同名文件后旧图可能仍在缓存）
+  const res = await api.fetchApi(`/userdata/${encodeURIComponent(full)}?v=${cacheVersion}`, { cache: 'no-store' });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(t('err.readImage', { status: res.status }));
   const buf = await res.arrayBuffer();

@@ -102,8 +102,8 @@ function makeFakeApi() {
         return { ok: true, status: 200, async json() { return names.map((path) => ({ path, size: 1, type: 'file' })); } };
       }
 
-      // /userdata/{file}
-      const m = /^\/userdata\/(.+)$/.exec(url);
+      // /userdata/{file}（?v= 版本参数需剥掉）
+      const m = /^\/userdata\/(.+?)(?:\?v=[0-9]+)?$/.exec(url);
       if (m) {
         const key = decodeURIComponent(m[1]);
         if (method === 'GET') {
@@ -160,7 +160,7 @@ async function main() {
 
   const { emptyArtists, normalizeArtists, mergeArtists, validateArtist, thumbFileFor,
     flattenHistoryImages, fetchHistoryPage, viewThumbUrl, viewFullUrl, makeThumbBlob, cleanOrig,
-    loadImageObjectURL, releaseAllImages } = await import('../probe/artists.mjs');
+    loadImageObjectURL, releaseImage, invalidateImage, imageRefs, releaseAllImages } = await import('../probe/artists.mjs');
   const { makeFileStore } = await import('../probe/storage.mjs');
   const { createPanel } = await import('../probe/panel.mjs');
 
@@ -250,6 +250,32 @@ async function main() {
 
     check('remove：删掉返回 true', (await store.remove('artists/img_x.webp')) === true);
     check('remove：再删返回 false', (await store.remove('artists/img_x.webp')) === false);
+  }
+
+  /* ================= C2. 图片缓存与失效（v0.4.6：换图后列表立即变新图） ================= */
+  head('C2 · 图片缓存：loadImageObjectURL 缓存 + invalidateImage 失效 + 版本参数');
+  {
+    // 假 api 记录请求 URL，验证 ?v= 版本参数
+    const reqUrls = [];
+    const cacheApi = makeFakeApi();
+    const origFetch = cacheApi.fetchApi.bind(cacheApi);
+    cacheApi.fetchApi = async (url, opts) => { reqUrls.push(url); return origFetch(url, opts); };
+    cacheApi.files.set('prompt_library/artists/img_cache.webp', new Uint8Array([1, 2, 3]));
+
+    const url1 = await loadImageObjectURL(cacheApi, 'artists/img_cache.webp');
+    check('首次加载产生 objectURL 且入缓存（refs=1）', /^blob:/.test(url1) && imageRefs('artists/img_cache.webp') === 1);
+    const url2 = await loadImageObjectURL(cacheApi, 'artists/img_cache.webp');
+    check('同键二次加载走缓存（refs=2，URL 不变）', url2 === url1 && imageRefs('artists/img_cache.webp') === 2);
+    check('首次 fetch 不带版本参数时不影响功能', reqUrls.some((u) => u.includes('/userdata/prompt_library%2Fartists%2Fimg_cache.webp')));
+
+    invalidateImage('artists/img_cache.webp');
+    check('invalidateImage 后缓存清空（refs=0）', imageRefs('artists/img_cache.webp') === 0);
+    const url3 = await loadImageObjectURL(cacheApi, 'artists/img_cache.webp');
+    check('失效后重新 fetch 出新 objectURL（非旧 URL）', /^blob:/.test(url3) && url3 !== url1);
+    check('重新 fetch 的 URL 带 ?v= 版本参数', reqUrls.some((u) => /\/userdata\/prompt_library%2Fartists%2Fimg_cache\.webp\?v=[0-9]+$/.test(u)));
+    invalidateImage('artists/img_not_exists.webp');   // 不存在的键
+    check('invalidateImage 对不存在的键安全', imageRefs('artists/img_cache.webp') === 1);
+    releaseAllImages();
   }
 
   /* ================= D. 面板集成 ================= */
